@@ -122,12 +122,17 @@ exports.verifySession = async (req, res, next) => {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status === 'paid' && session.metadata.userId === user.id) {
+      // Get subscription details from Stripe to get end date
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      const subscriptionEndDate = new Date(subscription.current_period_end * 1000);
+
       // Update user subscription if not already done by webhook
       if (user.subscriptionStatus !== 'active') {
         await user.update({
           stripeCustomerId: session.customer,
           subscriptionId: session.subscription,
-          subscriptionStatus: 'active'
+          subscriptionStatus: 'active',
+          subscriptionEndDate: subscriptionEndDate
         });
       }
 
@@ -135,7 +140,8 @@ exports.verifySession = async (req, res, next) => {
         success: true,
         subscription: {
           status: 'active',
-          sessionId: sessionId
+          sessionId: sessionId,
+          endDate: subscriptionEndDate
         }
       });
     } else {

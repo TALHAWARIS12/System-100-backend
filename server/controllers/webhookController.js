@@ -62,10 +62,15 @@ async function handleCheckoutCompleted(session) {
 
   const user = await User.findByPk(userId);
   if (user) {
+    // Get subscription to get the end date
+    const subscription = await stripe.subscriptions.retrieve(session.subscription);
+    const endDate = new Date(subscription.current_period_end * 1000);
+
     await user.update({
       stripeCustomerId: customerId,
       subscriptionId: session.subscription,
-      subscriptionStatus: 'active'
+      subscriptionStatus: 'active',
+      subscriptionEndDate: endDate
     });
     logger.info(`Checkout completed for user ${userId}`);
   }
