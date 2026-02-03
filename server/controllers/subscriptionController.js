@@ -35,8 +35,8 @@ exports.createCheckoutSession = async (req, res, next) => {
         }
       ],
       mode: 'subscription',
-      success_url: `${process.env.CLIENT_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/subscription/cancelled`,
+      success_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/subscription/cancelled`,
       metadata: {
         userId: user.id
       }
@@ -69,7 +69,7 @@ exports.createPortalSession = async (req, res, next) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${process.env.CLIENT_URL}/dashboard`
+      return_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/dashboard`
     });
 
     res.status(200).json({
