@@ -80,11 +80,22 @@ User.prototype.comparePassword = async function(candidatePassword) {
 };
 
 User.prototype.hasActiveSubscription = function() {
-  return this.role === 'admin' || 
-         this.role === 'educator' || 
-         (this.subscriptionStatus === 'active' && 
-          this.subscriptionEndDate && 
-          new Date(this.subscriptionEndDate) > new Date());
+  // Admin and educator always have access
+  if (this.role === 'admin' || this.role === 'educator') {
+    return true;
+  }
+  
+  // Check if subscription is active
+  if (this.subscriptionStatus === 'active') {
+    // If endDate exists, check it's in the future
+    if (this.subscriptionEndDate) {
+      return new Date(this.subscriptionEndDate) > new Date();
+    }
+    // If no endDate but status is active, allow access
+    return true;
+  }
+  
+  return false;
 };
 
 User.prototype.toJSON = function() {
