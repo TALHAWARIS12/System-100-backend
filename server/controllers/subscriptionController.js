@@ -94,11 +94,58 @@ exports.getSubscriptionStatus = async (req, res, next) => {
       subscription: {
         status: user.subscriptionStatus,
         endDate: user.subscriptionEndDate,
-        hasAccess: user.hasActiveSubscription()
+        hasAccess: user.subscriptionStatus === 'active'
       }
     });
   } catch (error) {
     logger.error('Get subscription status error:', error);
+    next(error);
+  }
+};
+
+// @desc    Verify checkout session
+// @route   POST /api/subscriptions/verify-session
+// @access  Private
+exports.verifySession = async (req, res, next) => {
+  try {
+    const { sessionId } = req.body;
+    const user = await User.findByPk(req.user.id);
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session ID required'
+      });
+    }
+
+    // Retrieve session from Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status === 'paid' && session.metadata.userId === user.id) {
+      // Update user subscription if not already done by webhook
+      if (user.subscriptionStatus !== 'active') {
+        await user.update({
+          stripeCustomerId: session.customer,
+          subscriptionId: session.subscription,
+          subscriptionStatus: 'active'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        subscription: {
+          status: 'active',
+          sessionId: sessionId
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Payment not completed'
+      });
+    }
+  } catch (error) {
+    logger.error('Verify session error:', error);
     next(error);
   }
 };
