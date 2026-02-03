@@ -26,7 +26,9 @@ const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:3000',
   'http://localhost:3000', // Local development
   'https://localhost:3000', // Local development with HTTPS
-];
+  'https://trading-system-bx14.onrender.com', // Production frontend
+  process.env.FRONTEND_URL, // Dynamic frontend URL from env
+].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
