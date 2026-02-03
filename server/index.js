@@ -21,28 +21,59 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration - support multiple origins
-const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:3000',
-  'http://localhost:3000', // Local development
-  'https://localhost:3000', // Local development with HTTPS
-  'https://trading-system-bx14.onrender.com', // Production frontend
-  process.env.FRONTEND_URL, // Dynamic frontend URL from env
-].filter(Boolean);
+// CORS configuration - Production-grade multi-origin support
+const buildAllowedOrigins = () => {
+  const origins = [
+    // Development
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'https://localhost:3000',
+    'https://localhost:5173',
+    // Production
+    'https://trading-system-bx14.onrender.com',
+    'https://system-100-frontend.onrender.com',
+  ];
+
+  // Add environment-specific origins
+  if (process.env.FRONTEND_URL) {
+    origins.push(process.env.FRONTEND_URL);
+  }
+  if (process.env.CLIENT_URL) {
+    origins.push(process.env.CLIENT_URL);
+  }
+
+  return [...new Set(origins)].filter(Boolean);
+};
+
+const allowedOrigins = buildAllowedOrigins();
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc)
+    // Allow requests with no origin (like mobile apps, curl requests, etc)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV === 'development') {
+      // Allow all in development
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      logger.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS policy'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400 // 24 hours
 }));
+
+// Log allowed origins for debugging
+if (process.env.NODE_ENV === 'development') {
+  logger.info(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
+}
 
 // Rate limiting
 const limiter = rateLimit({
