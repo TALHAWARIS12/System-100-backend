@@ -106,6 +106,8 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/calculators', calculatorRoutes);
 app.use('/api/data-sources', require('./routes/dataSources'));
+app.use('/api/market-data', require('./routes/marketData'));
+app.use('/api/signals', require('./routes/signals'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
