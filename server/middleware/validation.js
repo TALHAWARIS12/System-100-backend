@@ -130,8 +130,8 @@ const scannerConfigValidation = [
     .isArray({ min: 1 })
     .withMessage('Pairs must be a non-empty array'),
   body('pairs.*')
-    .matches(/^[A-Z]{6}$/)
-    .withMessage('Each pair must be 6 uppercase letters (e.g., BTCUSD)'),
+    .matches(/^[A-Z0-9]{4,10}$/)
+    .withMessage('Each pair must be 4-10 uppercase letters/numbers (e.g., BTCUSD, XAUUSD, US30USD)'),
   body('timeframes')
     .isArray({ min: 1 })
     .withMessage('Timeframes must be a non-empty array'),

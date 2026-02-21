@@ -9,7 +9,10 @@ class ScannerEngine {
       rsiOversold: this.rsiOversoldStrategy.bind(this),
       macdCrossover: this.macdCrossoverStrategy.bind(this),
       movingAverageCross: this.movingAverageCrossStrategy.bind(this),
-      supportResistance: this.supportResistanceStrategy.bind(this)
+      supportResistance: this.supportResistanceStrategy.bind(this),
+      cryptoMomentum: this.cryptoMomentumStrategy.bind(this),
+      commoditiesScanner: this.commoditiesScannerStrategy.bind(this),
+      indicesScanner: this.indicesScannerStrategy.bind(this)
     };
   }
 
@@ -185,29 +188,71 @@ class ScannerEngine {
 
     const interval = this.convertTimeframe(timeframe);
     const fromSymbol = pair.substring(0, 3);
-    const toSymbol = pair.substring(3, 6);
+    const toSymbol = pair.substring(3);
 
-    // Detect if this is a crypto pair (BTC, ETH, BNB, SOL, ADA, etc.)
+    // Detect asset type
     const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LTC', 'DOGE', 'MATIC'];
-    const isCrypto = cryptoSymbols.includes(fromSymbol);
+    const commoditySymbols = ['XAU', 'XAG', 'XPT', 'XPD']; // Gold, Silver, Platinum, Palladium
+    const indicesSymbols = ['US3', 'SPX', 'NAS', 'DJI', 'NDX']; // US30, S&P500, NASDAQ, etc.
     
-    // Use CRYPTO_INTRADAY for crypto, FX_INTRADAY for forex
-    const apiFunction = isCrypto ? 'CRYPTO_INTRADAY' : 'FX_INTRADAY';
-    const paramKey = isCrypto ? 'symbol' : 'from_symbol';
-
-    const params = {
-      function: apiFunction,
-      apikey: apiKey,
-      interval: interval,
-      outputsize: 'compact'
-    };
-
+    const isCrypto = cryptoSymbols.includes(fromSymbol);
+    const isCommodity = commoditySymbols.includes(fromSymbol);
+    const isIndex = indicesSymbols.includes(fromSymbol) || pair.startsWith('US30');
+    
+    let apiFunction, params;
+    
     if (isCrypto) {
-      params.symbol = fromSymbol;
-      params.market = toSymbol;
+      // Use CRYPTO_INTRADAY for crypto
+      apiFunction = 'CRYPTO_INTRADAY';
+      params = {
+        function: apiFunction,
+        symbol: fromSymbol,
+        market: toSymbol || 'USD',
+        interval: interval,
+        outputsize: 'compact',
+        apikey: apiKey
+      };
+    } else if (isCommodity) {
+      // Commodities like Gold (XAU), Silver (XAG) - treat as forex pair
+      apiFunction = 'FX_INTRADAY';
+      params = {
+        function: apiFunction,
+        from_symbol: fromSymbol,
+        to_symbol: toSymbol || 'USD',
+        interval: interval,
+        outputsize: 'compact',
+        apikey: apiKey
+      };
+    } else if (isIndex) {
+      // For indices, use TIME_SERIES_INTRADAY with appropriate symbol
+      // Map common index pairs to Alpha Vantage symbols
+      const indexSymbolMap = {
+        'US30USD': 'DIA',    // SPDR Dow Jones ETF
+        'US30': 'DIA',
+        'SPX500': 'SPY',     // S&P 500 ETF
+        'NAS100': 'QQQ'      // NASDAQ 100 ETF
+      };
+      const indexSymbol = indexSymbolMap[pair] || 'DIA';
+      
+      apiFunction = 'TIME_SERIES_INTRADAY';
+      params = {
+        function: apiFunction,
+        symbol: indexSymbol,
+        interval: interval,
+        outputsize: 'compact',
+        apikey: apiKey
+      };
     } else {
-      params.from_symbol = fromSymbol;
-      params.to_symbol = toSymbol;
+      // Standard forex pair
+      apiFunction = 'FX_INTRADAY';
+      params = {
+        function: apiFunction,
+        from_symbol: fromSymbol,
+        to_symbol: toSymbol,
+        interval: interval,
+        outputsize: 'compact',
+        apikey: apiKey
+      };
     }
 
     const response = await axios.get(`${apiUrl}/query`, {
@@ -228,9 +273,17 @@ class ScannerEngine {
       throw new Error('API error: ' + response.data['Information']);
     }
 
-    const timeSeriesKey = isCrypto 
-      ? `Time Series Crypto (${interval})`
-      : `Time Series FX (${interval})`;
+    // Determine the correct time series key based on asset type
+    let timeSeriesKey;
+    if (isCrypto) {
+      timeSeriesKey = `Time Series Crypto (${interval})`;
+    } else if (isIndex) {
+      timeSeriesKey = `Time Series (${interval})`;
+    } else {
+      // Forex and commodities use the same FX time series
+      timeSeriesKey = `Time Series FX (${interval})`;
+    }
+    
     const timeSeries = response.data[timeSeriesKey];
 
     if (!timeSeries) {
@@ -269,7 +322,26 @@ class ScannerEngine {
       'daily': '1day'
     };
     const interval = intervalMap[timeframe] || '1h';
-    const symbol = `${pair.substring(0, 3)}/${pair.substring(3, 6)}`;
+    
+    // Determine symbol format based on asset type
+    const fromSymbol = pair.substring(0, 3);
+    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LTC', 'DOGE', 'MATIC'];
+    const commoditySymbols = ['XAU', 'XAG', 'XPT', 'XPD'];
+    
+    let symbol;
+    if (pair.startsWith('US30') || pair === 'US30USD') {
+      // Indices - Twelve Data uses DJI for Dow Jones
+      symbol = 'DJI';
+    } else if (cryptoSymbols.includes(fromSymbol)) {
+      // Crypto pairs
+      symbol = `${fromSymbol}/USD`;
+    } else if (commoditySymbols.includes(fromSymbol)) {
+      // Commodities (Gold, Silver)
+      symbol = `${fromSymbol}/USD`;
+    } else {
+      // Forex pairs
+      symbol = `${pair.substring(0, 3)}/${pair.substring(3)}`;
+    }
 
     const response = await axios.get(`${baseUrl}/time_series`, {
       params: {
@@ -717,6 +789,174 @@ class ScannerEngine {
           support: support,
           resistance: resistance,
           price: close
+        }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Crypto Momentum Strategy - Combined RSI and MACD for BTC/ETH
+   */
+  async cryptoMomentumStrategy(data, rules) {
+    const { rsiOverbought = 70, rsiOversold = 30 } = rules;
+    const { rsi, macd, close } = data;
+    
+    // Strong buy: RSI oversold AND MACD bullish
+    if (rsi < rsiOversold && macd.histogram > 0) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: close * 0.95, // 5% stop loss for crypto volatility
+        takeProfit: close * 1.10, // 10% take profit
+        confidence: 80 + (30 - rsi) / 2,
+        indicators: {
+          rsi: rsi,
+          macd: macd.value,
+          histogram: macd.histogram
+        }
+      };
+    }
+    
+    // Strong sell: RSI overbought AND MACD bearish
+    if (rsi > rsiOverbought && macd.histogram < 0) {
+      return {
+        type: 'sell',
+        entry: close,
+        stopLoss: close * 1.05,
+        takeProfit: close * 0.90,
+        confidence: 80 + (rsi - 70) / 2,
+        indicators: {
+          rsi: rsi,
+          macd: macd.value,
+          histogram: macd.histogram
+        }
+      };
+    }
+    
+    // Moderate buy: RSI oversold only
+    if (rsi < rsiOversold) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: close * 0.97,
+        takeProfit: close * 1.06,
+        confidence: 65 + (30 - rsi) / 2,
+        indicators: { rsi: rsi }
+      };
+    }
+    
+    // Moderate sell: RSI overbought only
+    if (rsi > rsiOverbought) {
+      return {
+        type: 'sell',
+        entry: close,
+        stopLoss: close * 1.03,
+        takeProfit: close * 0.94,
+        confidence: 65 + (rsi - 70) / 2,
+        indicators: { rsi: rsi }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Commodities Scanner Strategy - For Gold (XAU) and Silver (XAG)
+   */
+  async commoditiesScannerStrategy(data, rules) {
+    const { rsiOverbought = 70, rsiOversold = 30 } = rules;
+    const { rsi, macd, ma, close, support, resistance } = data;
+    
+    // Buy signal: RSI oversold or price near support with MACD confirmation
+    if (rsi < rsiOversold || (Math.abs(close - support) < (resistance - support) * 0.03 && macd.histogram > 0)) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: close * 0.985, // 1.5% stop for commodities
+        takeProfit: close * 1.03, // 3% take profit
+        confidence: 70 + Math.min((35 - rsi), 20),
+        indicators: {
+          rsi: rsi,
+          macd: macd.value,
+          support: support,
+          resistance: resistance
+        }
+      };
+    }
+    
+    // Sell signal: RSI overbought or price near resistance with MACD confirmation
+    if (rsi > rsiOverbought || (Math.abs(close - resistance) < (resistance - support) * 0.03 && macd.histogram < 0)) {
+      return {
+        type: 'sell',
+        entry: close,
+        stopLoss: close * 1.015,
+        takeProfit: close * 0.97,
+        confidence: 70 + Math.min((rsi - 65), 20),
+        indicators: {
+          rsi: rsi,
+          macd: macd.value,
+          support: support,
+          resistance: resistance
+        }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Indices Scanner Strategy - For US30 and other indices
+   */
+  async indicesScannerStrategy(data, rules) {
+    const { rsiOverbought = 70, rsiOversold = 30 } = rules;
+    const { rsi, macd, ma, close } = data;
+    
+    // Buy signal: RSI oversold with MA support
+    if (rsi < rsiOversold && close > ma.ma50) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: ma.ma50 * 0.99,
+        takeProfit: close * 1.025, // 2.5% target for indices
+        confidence: 72 + (30 - rsi) / 2,
+        indicators: {
+          rsi: rsi,
+          ma50: ma.ma50,
+          macd: macd.value
+        }
+      };
+    }
+    
+    // Sell signal: RSI overbought with MA resistance
+    if (rsi > rsiOverbought && close < ma.ma20) {
+      return {
+        type: 'sell',
+        entry: close,
+        stopLoss: ma.ma20 * 1.01,
+        takeProfit: close * 0.975,
+        confidence: 72 + (rsi - 70) / 2,
+        indicators: {
+          rsi: rsi,
+          ma20: ma.ma20,
+          macd: macd.value
+        }
+      };
+    }
+    
+    // MA crossover signals for indices
+    if (ma.ma20 > ma.ma50 && close > ma.ma20 && macd.histogram > 0) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: ma.ma50,
+        takeProfit: close * 1.03,
+        confidence: 68,
+        indicators: {
+          ma20: ma.ma20,
+          ma50: ma.ma50,
+          macd: macd.value
         }
       };
     }
