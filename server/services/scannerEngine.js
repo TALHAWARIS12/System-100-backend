@@ -151,6 +151,10 @@ class ScannerEngine {
     if (provider === 'alphavantage') {
       // Alpha Vantage free tier: 1 request per second limit
       await this.sleep(1200); // 1.2 second delay to be safe
+    } else if (provider === 'twelvedata') {
+      // Twelve Data free tier: 8 requests per minute
+      // Wait 8 seconds between calls to stay within limit
+      await this.sleep(8000);
     } else if (provider === 'polygon' || provider === 'finnhub') {
       // Smaller delay for other providers
       await this.sleep(100);
