@@ -30,6 +30,10 @@ const adminRoutes = require('./routes/admin');
 
 const app = express();
 
+// Trust proxy - required for Render and other reverse proxy environments
+// Must be set BEFORE rate limiting middleware
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 
