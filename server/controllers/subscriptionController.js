@@ -4,14 +4,14 @@ const { User } = require('../models');
 const logger = require('../utils/logger');
 const { processReferralCommission } = require('./referralController');
 
-// Gold Circle Plans — all prices in GBP (pence)
+// Gold Circle Plans — all prices in USD
 const PLANS = {
   'gold-circle': {
     name: 'Gold Circle Monthly Subscription',
     stripePriceId: process.env.STRIPE_PRICE_GOLD_CIRCLE || process.env.STRIPE_PRICE_ID,
-    monthlyPrice: 200.77,        // £200.77/month
+    monthlyPrice: 200.77,        // $200.77/month
     setupFee: 0,
-    currency: 'gbp',
+    currency: 'usd',
     tier: 'gold',                // internal tier for feature gating
     interval: 'month',
     hasAssimilationAccount: false,
@@ -22,9 +22,9 @@ const PLANS = {
     name: 'Gold Circle PLUS & 10k Assimilation Account',
     stripePriceId: process.env.STRIPE_PRICE_GOLD_CIRCLE_PLUS_10K || process.env.STRIPE_PRICE_ID,
     setupPriceId: process.env.STRIPE_SETUP_GOLD_CIRCLE_PLUS_10K,
-    monthlyPrice: 249,           // £249/month recurring
-    setupFee: 599,               // £599 one-off setup
-    currency: 'gbp',
+    monthlyPrice: 249,           // $249/month recurring
+    setupFee: 599,               // $599 one-off setup
+    currency: 'usd',
     tier: 'gold',
     interval: 'month',
     hasAssimilationAccount: true,
@@ -36,9 +36,9 @@ const PLANS = {
     name: 'Gold Circle & 10k Assimilation Account',
     stripePriceId: process.env.STRIPE_PRICE_GOLD_CIRCLE_10K || process.env.STRIPE_PRICE_ID,
     setupPriceId: process.env.STRIPE_SETUP_GOLD_CIRCLE_10K,
-    monthlyPrice: 124.77,       // £124.77/month recurring
-    setupFee: 350.77,           // £350.77 one-off setup
-    currency: 'gbp',
+    monthlyPrice: 124.77,       // $124.77/month recurring
+    setupFee: 350.77,           // $350.77 one-off setup
+    currency: 'usd',
     tier: 'gold',
     interval: 'month',
     hasAssimilationAccount: true,
