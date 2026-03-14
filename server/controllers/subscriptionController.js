@@ -61,6 +61,23 @@ exports.createCheckoutSession = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid plan selected' });
     }
 
+    // Validate required Stripe configuration
+    if (!process.env.STRIPE_SECRET_KEY) {
+      logger.error('STRIPE_SECRET_KEY is not configured');
+      return res.status(500).json({ success: false, message: 'Payment service not configured. Please contact support.' });
+    }
+
+    if (!plan.stripePriceId) {
+      logger.error(`STRIPE price ID not configured for plan: ${planId}`);
+      return res.status(500).json({ success: false, message: `Payment plan ${planId} not configured. Please contact support.` });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL;
+    if (!frontendUrl) {
+      logger.error('FRONTEND_URL and CLIENT_URL are not configured');
+      return res.status(500).json({ success: false, message: 'Frontend URL not configured. Please contact support.' });
+    }
+
     // Create or retrieve Stripe customer
     let customerId = user.stripeCustomerId;
     
@@ -99,8 +116,8 @@ exports.createCheckoutSession = async (req, res, next) => {
       line_items: lineItems,
       mode: 'subscription',
       currency: plan.currency,
-      success_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/subscription/cancelled`,
+      success_url: `${frontendUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/subscription/cancelled`,
       metadata: {
         userId: user.id,
         planId,
@@ -114,7 +131,13 @@ exports.createCheckoutSession = async (req, res, next) => {
       url: session.url
     });
   } catch (error) {
-    logger.error('Create checkout session error:', error);
+    logger.error('Create checkout session error:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      stripeError: error.raw || error
+    });
+    
     // Don't forward Stripe's status codes — return a clear message
     if (error.type === 'StripeAuthenticationError') {
       return res.status(500).json({ success: false, message: 'Payment service configuration error. Please contact support.' });
