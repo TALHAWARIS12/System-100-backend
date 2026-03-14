@@ -58,6 +58,8 @@ exports.handleStripeWebhook = async (req, res) => {
 
 async function handleCheckoutCompleted(session) {
   const userId = session.metadata.userId;
+  const tier = session.metadata.tier || 'gold';
+  const planId = session.metadata.planId || 'gold-circle';
   const customerId = session.customer;
 
   const user = await User.findByPk(userId);
@@ -70,9 +72,10 @@ async function handleCheckoutCompleted(session) {
       stripeCustomerId: customerId,
       subscriptionId: session.subscription,
       subscriptionStatus: 'active',
+      subscriptionTier: tier,
       subscriptionEndDate: endDate
     });
-    logger.info(`Checkout completed for user ${userId}`);
+    logger.info(`Checkout completed for user ${userId}, plan: ${planId}, tier: ${tier}`);
   }
 }
 

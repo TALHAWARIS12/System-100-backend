@@ -51,6 +51,60 @@ exports.initializeDefaultStrategies = async () => {
       scanInterval: 120
     });
 
+    // Support/Resistance Strategy - All Major Pairs
+    await ScannerConfig.create({
+      strategyName: 'supportResistance',
+      description: 'Support/Resistance Strategy - Breakout signals from key levels',
+      rules: {
+        breakoutThreshold: 0.02
+      },
+      timeframes: ['1h', '4h', '1d'],
+      pairs: ['EURUSD', 'GBPUSD', 'GBPJPY', 'XAUUSD', 'XAGUSD', 'US30USD'],
+      isEnabled: true,
+      scanInterval: 60
+    });
+
+    // Bollinger Band Breakout Strategy - High Volatility Assets
+    await ScannerConfig.create({
+      strategyName: 'bollingerBreakout',
+      description: 'Bollinger Band Breakout Strategy - Volatility breakout signals using standard deviation bands',
+      rules: {
+        period: 20,
+        stdDev: 2
+      },
+      timeframes: ['1h', '4h', '1d'],
+      pairs: ['EURUSD', 'GBPUSD', 'GBPJPY', 'BTCUSD', 'ETHUSD', 'XAUUSD'],
+      isEnabled: true,
+      scanInterval: 60
+    });
+
+    // Volume Surge Strategy - All Assets with Volume Data
+    await ScannerConfig.create({
+      strategyName: 'volumeSurge',
+      description: 'Volume Surge Strategy - Detects unusual volume spikes with price confirmation',
+      rules: {
+        volumeThreshold: 2.0,
+        priceMove: 0.005
+      },
+      timeframes: ['1h', '4h'],
+      pairs: ['BTCUSD', 'ETHUSD', 'EURUSD', 'GBPUSD', 'XAUUSD', 'US30USD'],
+      isEnabled: true,
+      scanInterval: 30
+    });
+
+    // Price Action Patterns Strategy - Forex & Commodities
+    await ScannerConfig.create({
+      strategyName: 'priceActionPatterns',
+      description: 'Price Action Patterns Strategy - Candlestick patterns like engulfing, hammer, doji',
+      rules: {
+        minPatternSize: 0.002
+      },
+      timeframes: ['1h', '4h', '1d'],
+      pairs: ['EURUSD', 'GBPUSD', 'GBPJPY', 'XAUUSD', 'XAGUSD'],
+      isEnabled: true,
+      scanInterval: 60
+    });
+
     // Crypto Strategy - BTC & ETH
     await ScannerConfig.create({
       strategyName: 'cryptoMomentum',
@@ -94,7 +148,7 @@ exports.initializeDefaultStrategies = async () => {
       scanInterval: 60
     });
 
-    logger.info('Default scanner strategies initialized successfully');
+    logger.info('Default scanner strategies initialized successfully - 10 strategies configured');
   } catch (error) {
     logger.error('Error initializing default strategies:', error);
   }

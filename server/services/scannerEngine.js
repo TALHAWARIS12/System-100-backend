@@ -10,6 +10,9 @@ class ScannerEngine {
       macdCrossover: this.macdCrossoverStrategy.bind(this),
       movingAverageCross: this.movingAverageCrossStrategy.bind(this),
       supportResistance: this.supportResistanceStrategy.bind(this),
+      bollingerBreakout: this.bollingerBreakoutStrategy.bind(this),
+      volumeSurge: this.volumeSurgeStrategy.bind(this),
+      priceActionPatterns: this.priceActionPatternsStrategy.bind(this),
       cryptoMomentum: this.cryptoMomentumStrategy.bind(this),
       commoditiesScanner: this.commoditiesScannerStrategy.bind(this),
       indicesScanner: this.indicesScannerStrategy.bind(this)
@@ -963,6 +966,247 @@ class ScannerEngine {
           macd: macd.value
         }
       };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Bollinger Band Breakout Strategy
+   */
+  async bollingerBreakoutStrategy(data, rules) {
+    const { period = 20, stdDev = 2 } = rules;
+    const { close, candles } = data;
+    
+    if (!candles || candles.length < period) {
+      return null;
+    }
+
+    // Calculate Bollinger Bands
+    const closes = candles.slice(0, period).map(c => c.close);
+    const sma = this.calculateSMA(closes, period);
+    const standardDev = this.calculateStandardDeviation(closes, sma);
+    
+    const upperBand = sma + (standardDev * stdDev);
+    const lowerBand = sma - (standardDev * stdDev);
+    const currentClose = candles[0].close;
+    const previousClose = candles[1].close;
+    
+    // Buy signal: Price breaks above upper band
+    if (currentClose > upperBand && previousClose <= upperBand) {
+      return {
+        type: 'buy',
+        entry: currentClose,
+        stopLoss: sma,
+        takeProfit: currentClose + (upperBand - sma),
+        confidence: 75,
+        indicators: {
+          upperBand,
+          lowerBand,
+          sma,
+          breakout: 'upper'
+        }
+      };
+    }
+    
+    // Sell signal: Price breaks below lower band
+    if (currentClose < lowerBand && previousClose >= lowerBand) {
+      return {
+        type: 'sell',
+        entry: currentClose,
+        stopLoss: sma,
+        takeProfit: currentClose - (sma - lowerBand),
+        confidence: 75,
+        indicators: {
+          upperBand,
+          lowerBand,
+          sma,
+          breakout: 'lower'
+        }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Volume Surge Strategy
+   */
+  async volumeSurgeStrategy(data, rules) {
+    const { volumeThreshold = 2.0, priceMove = 0.005 } = rules;
+    const { volume, close, candles } = data;
+    
+    if (!candles || candles.length < 20 || !volume) {
+      return null;
+    }
+
+    // Calculate average volume over last 20 periods
+    const recentVolumes = candles.slice(0, 20).map(c => c.volume || 0).filter(v => v > 0);
+    if (recentVolumes.length < 10) return null;
+    
+    const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length;
+    const volumeRatio = volume / avgVolume;
+    
+    // Price movement from previous candle
+    const previousClose = candles[1]?.close;
+    if (!previousClose) return null;
+    
+    const priceChange = Math.abs(close - previousClose) / previousClose;
+    
+    // Volume surge with significant price movement
+    if (volumeRatio >= volumeThreshold && priceChange >= priceMove) {
+      const direction = close > previousClose ? 'buy' : 'sell';
+      
+      return {
+        type: direction,
+        entry: close,
+        stopLoss: direction === 'buy' ? close * 0.98 : close * 1.02,
+        takeProfit: direction === 'buy' ? close * 1.04 : close * 0.96,
+        confidence: Math.min(80, 60 + (volumeRatio * 10)),
+        indicators: {
+          volume,
+          avgVolume,
+          volumeRatio,
+          priceChange: priceChange * 100
+        }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Price Action Patterns Strategy
+   */
+  async priceActionPatternsStrategy(data, rules) {
+    const { minPatternSize = 0.002 } = rules;
+    const { candles, close } = data;
+    
+    if (!candles || candles.length < 5) {
+      return null;
+    }
+
+    const recent = candles.slice(0, 5);
+    
+    // Detect Bullish Engulfing Pattern
+    const bullishEngulfing = this.detectBullishEngulfing(recent);
+    if (bullishEngulfing) {
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: recent[1].low * 0.995,
+        takeProfit: close + (close - recent[1].low),
+        confidence: 70,
+        indicators: {
+          pattern: 'Bullish Engulfing',
+          bodySize: bullishEngulfing.bodySize
+        }
+      };
+    }
+    
+    // Detect Bearish Engulfing Pattern
+    const bearishEngulfing = this.detectBearishEngulfing(recent);
+    if (bearishEngulfing) {
+      return {
+        type: 'sell',
+        entry: close,
+        stopLoss: recent[1].high * 1.005,
+        takeProfit: close - (recent[1].high - close),
+        confidence: 70,
+        indicators: {
+          pattern: 'Bearish Engulfing',
+          bodySize: bearishEngulfing.bodySize
+        }
+      };
+    }
+    
+    // Detect Hammer/Doji patterns
+    const hammer = this.detectHammer(recent[0]);
+    if (hammer && recent[1].close < recent[1].open) { // Hammer after bearish candle
+      return {
+        type: 'buy',
+        entry: close,
+        stopLoss: recent[0].low * 0.995,
+        takeProfit: close * 1.02,
+        confidence: 65,
+        indicators: {
+          pattern: 'Hammer',
+          shadowRatio: hammer.shadowRatio
+        }
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Calculate Standard Deviation
+   */
+  calculateStandardDeviation(values, mean) {
+    const squaredDiffs = values.map(value => Math.pow(value - mean, 2));
+    const avgSquaredDiff = squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(avgSquaredDiff);
+  }
+
+  /**
+   * Detect Bullish Engulfing Pattern
+   */
+  detectBullishEngulfing(candles) {
+    if (candles.length < 2) return null;
+    
+    const [current, previous] = candles;
+    
+    // Previous candle is bearish
+    const prevBearish = previous.close < previous.open;
+    // Current candle is bullish
+    const currBullish = current.close > current.open;
+    // Current body engulfs previous body
+    const engulfs = current.close > previous.open && current.open < previous.close;
+    
+    if (prevBearish && currBullish && engulfs) {
+      const bodySize = Math.abs(current.close - current.open) / current.open;
+      return { bodySize };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Detect Bearish Engulfing Pattern
+   */
+  detectBearishEngulfing(candles) {
+    if (candles.length < 2) return null;
+    
+    const [current, previous] = candles;
+    
+    // Previous candle is bullish
+    const prevBullish = previous.close > previous.open;
+    // Current candle is bearish
+    const currBearish = current.close < current.open;
+    // Current body engulfs previous body
+    const engulfs = current.close < previous.open && current.open > previous.close;
+    
+    if (prevBullish && currBearish && engulfs) {
+      const bodySize = Math.abs(current.close - current.open) / current.open;
+      return { bodySize };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Detect Hammer Pattern
+   */
+  detectHammer(candle) {
+    const bodySize = Math.abs(candle.close - candle.open);
+    const lowerShadow = Math.min(candle.open, candle.close) - candle.low;
+    const upperShadow = candle.high - Math.max(candle.open, candle.close);
+    
+    // Hammer criteria: long lower shadow (2x body), small upper shadow
+    const shadowRatio = lowerShadow / bodySize;
+    
+    if (shadowRatio >= 2 && upperShadow <= bodySize * 0.3) {
+      return { shadowRatio };
     }
     
     return null;

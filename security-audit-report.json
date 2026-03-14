@@ -1,0 +1,175 @@
+{
+  "timestamp": "2026-03-11T17:17:37.883Z",
+  "summary": {
+    "totalChecks": 32,
+    "criticalIssues": 0,
+    "warnings": 4,
+    "passed": 28,
+    "status": "PASSED"
+  },
+  "issues": [],
+  "warnings": [
+    {
+      "message": "File .env may be readable by others (666)",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.873Z"
+    },
+    {
+      "message": "File server/config/database.js may be readable by others (666)",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.873Z"
+    },
+    {
+      "message": "File scripts/security-audit.js may be readable by others (666)",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.874Z"
+    },
+    {
+      "message": "Database SSL enforcement not detected",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.879Z"
+    }
+  ],
+  "passed": [
+    {
+      "message": "JWT_SECRET length is secure",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.866Z"
+    },
+    {
+      "message": "Environment variable configured: JWT_SECRET",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.867Z"
+    },
+    {
+      "message": "Environment variable configured: DATABASE_URL",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.867Z"
+    },
+    {
+      "message": "Environment variable configured: STRIPE_SECRET_KEY",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.867Z"
+    },
+    {
+      "message": "Environment variable configured: STRIPE_WEBHOOK_SECRET",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.868Z"
+    },
+    {
+      "message": "File exists: package.json",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.869Z"
+    },
+    {
+      "message": "Security dependency installed: helmet",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.870Z"
+    },
+    {
+      "message": "Security dependency installed: cors",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.870Z"
+    },
+    {
+      "message": "Security dependency installed: express-rate-limit",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.870Z"
+    },
+    {
+      "message": "Security dependency installed: express-validator",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.871Z"
+    },
+    {
+      "message": "Security dependency installed: bcryptjs",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.871Z"
+    },
+    {
+      "message": "File exists: client/package.json",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.871Z"
+    },
+    {
+      "message": "Client package.json found",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.871Z"
+    },
+    {
+      "message": "File exists: .gitignore",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.875Z"
+    },
+    {
+      "message": "Git ignore rule exists: .env",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.876Z"
+    },
+    {
+      "message": "Git ignore rule exists: node_modules/",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.876Z"
+    },
+    {
+      "message": "Git ignore rule exists: *.log",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.876Z"
+    },
+    {
+      "message": "Git ignore rule exists: .DS_Store",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.876Z"
+    },
+    {
+      "message": "Environment file security check completed",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.877Z"
+    },
+    {
+      "message": "File exists: server/config/database.js",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.878Z"
+    },
+    {
+      "message": "Database configuration uses environment variables",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.879Z"
+    },
+    {
+      "message": "File exists: server/index.js",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.880Z"
+    },
+    {
+      "message": "Helmet middleware implemented",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.881Z"
+    },
+    {
+      "message": "CORS configuration implemented",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.881Z"
+    },
+    {
+      "message": "Rate limiting implemented",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.881Z"
+    },
+    {
+      "message": "Input validation implemented",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.881Z"
+    },
+    {
+      "message": "Error handling implemented",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.882Z"
+    },
+    {
+      "message": "Request logging configured",
+      "details": "",
+      "timestamp": "2026-03-11T17:17:37.882Z"
+    }
+  ]
+}

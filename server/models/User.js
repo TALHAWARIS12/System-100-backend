@@ -49,6 +49,39 @@ const User = sequelize.define('User', {
     type: DataTypes.DATE,
     allowNull: true
   },
+  subscriptionTier: {
+    type: DataTypes.ENUM('none', 'bronze', 'silver', 'gold', 'platinum'),
+    defaultValue: 'none'
+  },
+  referralCode: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
+  },
+  referredBy: {
+    type: DataTypes.UUID,
+    allowNull: true
+  },
+  referralBalance: {
+    type: DataTypes.DECIMAL(12, 2),
+    defaultValue: 0
+  },
+  fcmToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  pushSubscription: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  notificationPreferences: {
+    type: DataTypes.JSONB,
+    defaultValue: { email: true, push: true, inApp: true, signals: true, news: true, chat: true }
+  },
+  isBanned: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

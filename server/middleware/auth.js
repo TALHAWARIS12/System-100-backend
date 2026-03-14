@@ -65,4 +65,45 @@ const requireActiveSubscription = (req, res, next) => {
   next();
 };
 
-module.exports = { protect, authorize, requireActiveSubscription };
+// Tier hierarchy: platinum > gold > silver > bronze
+const TIER_HIERARCHY = { bronze: 1, silver: 2, gold: 3, platinum: 4 };
+
+/**
+ * Require a minimum subscription tier.
+ * Usage: requireTier('silver') — allows silver, gold, platinum
+ * Usage: requireTier('gold', 'platinum') — allows only gold and platinum
+ */
+const requireTier = (...allowedTiers) => {
+  return (req, res, next) => {
+    // Admin and educator bypass tier check
+    if (req.user.role === 'admin' || req.user.role === 'educator') {
+      return next();
+    }
+
+    if (!req.user.hasActiveSubscription()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Active subscription required'
+      });
+    }
+
+    const userTier = req.user.subscriptionTier || 'bronze';
+
+    // If single tier provided, treat as minimum tier (user must be at or above)
+    if (allowedTiers.length === 1) {
+      const minLevel = TIER_HIERARCHY[allowedTiers[0]] || 1;
+      const userLevel = TIER_HIERARCHY[userTier] || 0;
+      if (userLevel >= minLevel) return next();
+    } else {
+      // If multiple tiers, user must be in one of them
+      if (allowedTiers.includes(userTier)) return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: `This feature requires a ${allowedTiers.join(' or ')} subscription tier. Your current tier: ${userTier}`
+    });
+  };
+};
+
+module.exports = { protect, authorize, requireActiveSubscription, requireTier };

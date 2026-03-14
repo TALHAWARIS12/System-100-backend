@@ -18,13 +18,11 @@ const DataSource = sequelize.define('DataSource', {
   },
   baseUrl: {
     type: DataTypes.STRING,
-    allowNull: false,
-    comment: 'API base URL'
+    allowNull: false
   },
   apiKey: {
     type: DataTypes.STRING,
-    allowNull: true,
-    comment: 'API key for authentication'
+    allowNull: true
   },
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -32,18 +30,15 @@ const DataSource = sequelize.define('DataSource', {
   },
   priority: {
     type: DataTypes.INTEGER,
-    defaultValue: 0,
-    comment: 'Lower number = higher priority (0 = primary)'
+    defaultValue: 0
   },
   rateLimit: {
     type: DataTypes.INTEGER,
-    defaultValue: 500,
-    comment: 'API calls per day limit'
+    defaultValue: 500
   },
   usageCount: {
     type: DataTypes.INTEGER,
-    defaultValue: 0,
-    comment: 'API calls made today'
+    defaultValue: 0
   },
   lastUsed: {
     type: DataTypes.DATE,
@@ -55,8 +50,7 @@ const DataSource = sequelize.define('DataSource', {
   },
   configuration: {
     type: DataTypes.JSONB,
-    defaultValue: {},
-    comment: 'Provider-specific configuration (headers, params, etc.)'
+    defaultValue: {}
   }
 }, {
   timestamps: true,

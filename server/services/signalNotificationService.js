@@ -19,13 +19,18 @@ class SignalNotificationService {
     try {
       logger.info(`Broadcasting signal: ${signal.pair} ${signal.signalType}`);
 
-      // Get all users with active subscriptions who want notifications
+      // Get all users with active subscriptions who want signal notifications
       const users = await User.findAll({
         where: {
           isActive: true,
-          subscriptionStatus: 'active',
-          // Add notification preference check when implemented
+          subscriptionStatus: 'active'
         }
+      });
+
+      // Filter by notification preferences
+      const signalRecipients = users.filter(u => {
+        const prefs = u.notificationPreferences || {};
+        return prefs.signals !== false; // Default to true if not set
       });
 
       // Include admins and educators
@@ -36,7 +41,7 @@ class SignalNotificationService {
         }
       });
 
-      const allRecipients = [...new Map([...users, ...adminsEducators].map(u => [u.id, u])).values()];
+      const allRecipients = [...new Map([...signalRecipients, ...adminsEducators].map(u => [u.id, u])).values()];
 
       logger.info(`Sending signal to ${allRecipients.length} users`);
 
@@ -98,10 +103,28 @@ class SignalNotificationService {
    * Send notification to a single user
    */
   async sendNotification(user, signal) {
-    // Send email notification
-    await sendSignalNotification(user, signal);
-    
-    // Future: Add push notifications, SMS, Telegram, etc.
+    const prefs = user.notificationPreferences || {};
+
+    // Send email notification if user wants emails
+    if (prefs.email !== false) {
+      await sendSignalNotification(user, signal);
+    }
+
+    // Send push notification if user has a subscription
+    if (prefs.push !== false && user.pushSubscription) {
+      try {
+        const notificationService = require('./notificationService');
+        await notificationService.sendPush(user, {
+          title: `🚨 ${signal.pair} ${signal.signalType.toUpperCase()} Signal`,
+          message: `Entry: ${signal.entryPrice || 'Market'} | SL: ${signal.stopLoss || 'N/A'} | TP: ${signal.takeProfit || 'N/A'}`,
+          type: 'signal',
+          data: { url: '/dashboard', signal }
+        });
+      } catch (pushErr) {
+        logger.warn(`Push notification failed for ${user.email}:`, pushErr.message);
+      }
+    }
+
     logger.info(`Signal notification sent to ${user.email}`);
   }
 
