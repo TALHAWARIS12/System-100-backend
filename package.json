@@ -1,7 +1,7 @@
 {
-  "name": "trading-platform",
+  "name": "gold-circle-community",
   "version": "1.0.0",
-  "description": "Production-ready trading scanner and signal platform",
+  "description": "Production-ready Gold Circle Community platform",
   "main": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",

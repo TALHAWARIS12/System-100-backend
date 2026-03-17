@@ -1,4 +1,4 @@
-# Trading Platform - Production-Ready SaaS
+# Gold Circle Community - Production-Ready SaaS
 
 A professional, full-stack trading scanner and signal platform with multi-role authentication, subscription-based access control, and real-time market analysis.
 
