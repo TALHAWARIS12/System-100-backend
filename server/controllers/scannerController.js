@@ -212,7 +212,7 @@ exports.cleanupDuplicates = async (req, res, next) => {
 
     // Group by (pair, timeframe, entry, signalType) and keep only the latest
     const signalGroups = {};
-    const toKeep = new Set();
+    const toDelete = [];
     let duplicatesFound = 0;
 
     for (const signal of allSignals) {
@@ -227,25 +227,25 @@ exports.cleanupDuplicates = async (req, res, next) => {
     for (const ids of Object.values(signalGroups)) {
       if (ids.length > 1) {
         duplicatesFound += ids.length - 1;
-        // Keep the first one, mark others for deletion
-        ids.slice(1).forEach(id => toKeep.add(id));
+        // Keep the first one, delete the rest
+        toDelete.push(...ids.slice(1));
       }
     }
 
     // Delete old duplicates
-    if (toKeep.size > 0) {
+    if (toDelete.length > 0) {
       await ScannerResult.destroy({
         where: {
-          id: Array.from(toKeep)
+          id: toDelete
         }
       });
-      logger.info(`Cleaned up ${toKeep.size} duplicate signals`);
+      logger.info(`Cleaned up ${toDelete.length} duplicate signals`);
     }
 
     res.status(200).json({
       success: true,
-      message: `Cleanup completed. Removed ${toKeep.size} duplicate signals`,
-      duplicatesRemoved: toKeep.size
+      message: `Cleanup completed. Removed ${toDelete.length} duplicate signals`,
+      duplicatesRemoved: toDelete.length
     });
   } catch (error) {
     logger.error('Cleanup duplicates error:', error);
