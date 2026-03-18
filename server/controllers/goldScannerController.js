@@ -46,10 +46,23 @@ exports.getSignals = async (req, res, next) => {
     const signals = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit)
+      limit: parseInt(limit) * 2 // Fetch extra to deduplicate
     });
 
-    res.json({ success: true, signals });
+    // Deduplicate by (entry price, signalType, timeframe) - keep only latest
+    const deduped = new Map();
+    const signalsArray = Array.isArray(signals) ? signals : [];
+    
+    for (const signal of signalsArray) {
+      const key = `${signal.entry}-${signal.signalType}-${signal.timeframe}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, signal);
+      }
+    }
+
+    const uniqueSignals = Array.from(deduped.values()).slice(0, parseInt(limit));
+
+    res.json({ success: true, signals: uniqueSignals });
   } catch (error) {
     logger.error('Get gold signals error:', error);
     next(error);

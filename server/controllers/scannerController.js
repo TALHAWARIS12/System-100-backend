@@ -17,13 +17,26 @@ exports.getResults = async (req, res, next) => {
     const results = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit)
+      limit: parseInt(limit) * 2 // Fetch extra to deduplicate
     });
+
+    // Deduplicate by (pair, timeframe, entry price, signalType) - keep only latest
+    const deduped = new Map();
+    const resultsArray = Array.isArray(results) ? results : [];
+    
+    for (const result of resultsArray) {
+      const key = `${result.pair}-${result.timeframe}-${result.entry}-${result.signalType}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, result);
+      }
+    }
+
+    const uniqueResults = Array.from(deduped.values()).slice(0, parseInt(limit));
 
     res.status(200).json({
       success: true,
-      count: results.length,
-      results
+      count: uniqueResults.length,
+      results: uniqueResults
     });
   } catch (error) {
     logger.error('Get scanner results error:', error);
@@ -182,6 +195,60 @@ exports.getStats = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get scanner stats error:', error);
+    next(error);
+  }
+};
+
+// @desc    Clean up old duplicate signals
+// @route   DELETE /api/scanner/cleanup-duplicates
+// @access  Private (admin only)
+exports.cleanupDuplicates = async (req, res, next) => {
+  try {
+    // Get all active signals
+    const allSignals = await ScannerResult.findAll({
+      where: { isActive: true },
+      order: [['pair', 'ASC'], ['timeframe', 'ASC'], ['entry', 'ASC'], ['createdAt', 'DESC']]
+    });
+
+    // Group by (pair, timeframe, entry, signalType) and keep only the latest
+    const signalGroups = {};
+    const toKeep = new Set();
+    let duplicatesFound = 0;
+
+    for (const signal of allSignals) {
+      const key = `${signal.pair}-${signal.timeframe}-${signal.entry}-${signal.signalType}`;
+      if (!signalGroups[key]) {
+        signalGroups[key] = [];
+      }
+      signalGroups[key].push(signal.id);
+    }
+
+    // Mark duplicates for deletion (keep only the first/latest per group)
+    for (const ids of Object.values(signalGroups)) {
+      if (ids.length > 1) {
+        duplicatesFound += ids.length - 1;
+        // Keep the first one, mark others for deletion
+        ids.slice(1).forEach(id => toKeep.add(id));
+      }
+    }
+
+    // Delete old duplicates
+    if (toKeep.size > 0) {
+      await ScannerResult.destroy({
+        where: {
+          id: Array.from(toKeep)
+        }
+      });
+      logger.info(`Cleaned up ${toKeep.size} duplicate signals`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Cleanup completed. Removed ${toKeep.size} duplicate signals`,
+      duplicatesRemoved: toKeep.size
+    });
+  } catch (error) {
+    logger.error('Cleanup duplicates error:', error);
     next(error);
   }
 };

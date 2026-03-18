@@ -7,7 +7,8 @@ const {
   updateConfig,
   deleteConfig,
   runScanner,
-  getStats
+  getStats,
+  cleanupDuplicates
 } = require('../controllers/scannerController');
 const { protect, authorize, requireActiveSubscription } = require('../middleware/auth');
 const {
@@ -28,5 +29,6 @@ router.post('/configs', protect, authorize('admin'), scannerConfigValidation, cr
 router.put('/configs/:id', protect, authorize('admin'), validateId, scannerConfigValidation, updateConfig);
 router.delete('/configs/:id', protect, authorize('admin'), deleteConfig);
 router.post('/run', protect, authorize('admin'), runScanner);
+router.delete('/cleanup-duplicates', protect, authorize('admin'), cleanupDuplicates);
 
 module.exports = router;
