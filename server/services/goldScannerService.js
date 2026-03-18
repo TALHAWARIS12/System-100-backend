@@ -330,6 +330,23 @@ class GoldScannerService {
         // Primary timeframe for the signal (15m is preferred)
         const primaryTimeframe = '15m';
         
+        // Check if this exact signal already exists within the last 30 minutes
+        const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
+        const existingSignal = await ScannerResult.findOne({
+          where: {
+            pair: signal.pair,
+            timeframe: primaryTimeframe,
+            signalType: signal.signalType,
+            entry: signal.entry,
+            createdAt: { [require('sequelize').Op.gt]: thirtyMinsAgo }
+          }
+        });
+
+        if (existingSignal) {
+          logger.info(`Duplicate signal detected for ${signal.pair} ${signal.signalType} @ ${signal.entry} - skipping`);
+          return { signal: null, duplicate: true, reason: 'Recent duplicate signal' };
+        }
+
         // Save to legacy ScannerResult (Phase 1 compat) - single record only
         const saved = await ScannerResult.create({
           pair: signal.pair,

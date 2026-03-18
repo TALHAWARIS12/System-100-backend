@@ -43,24 +43,34 @@ exports.getSignals = async (req, res, next) => {
       where.expiresAt = { [Op.gt]: new Date() };
     }
 
+    // Clean up expired signals first
+    await ScannerResult.destroy({
+      where: {
+        expiresAt: { [Op.lt]: new Date() }
+      }
+    });
+
     const signals = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit) * 2 // Fetch extra to deduplicate
+      limit: parseInt(limit) * 3 // Fetch extra to deduplicate
     });
 
-    // Deduplicate by (entry price, signalType, timeframe) - keep only latest
-    const deduped = new Map();
+    // Aggressive deduplication: keep only ONE signal per signalType
+    // (one BUY and one SELL max for XAUUSD)
+    const deduped = {};
     const signalsArray = Array.isArray(signals) ? signals : [];
     
     for (const signal of signalsArray) {
-      const key = `${signal.entry}-${signal.signalType}-${signal.timeframe}`;
-      if (!deduped.has(key)) {
-        deduped.set(key, signal);
+      const signalType = signal.signalType; // 'buy' or 'sell'
+      
+      // Only keep the first (most recent) signal for this type
+      if (!deduped[signalType]) {
+        deduped[signalType] = signal;
       }
     }
 
-    const uniqueSignals = Array.from(deduped.values()).slice(0, parseInt(limit));
+    const uniqueSignals = Object.values(deduped).slice(0, parseInt(limit));
 
     res.json({ success: true, signals: uniqueSignals });
   } catch (error) {

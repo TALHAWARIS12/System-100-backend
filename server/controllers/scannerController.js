@@ -14,20 +14,36 @@ exports.getResults = async (req, res, next) => {
     if (pair) where.pair = pair;
     if (timeframe) where.timeframe = timeframe;
 
+    // First, clean up expired signals
+    await ScannerResult.destroy({
+      where: {
+        expiresAt: { [require('sequelize').Op.lt]: new Date() }
+      }
+    });
+
+    // Fetch signals with extra buffer for deduplication
     const results = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit) * 2 // Fetch extra to deduplicate
+      limit: parseInt(limit) * 3 // Fetch more to deduplicate
     });
 
-    // Deduplicate by (pair, timeframe, entry price, signalType) - keep only latest
+    // Aggressive deduplication: group by pair + signalType, keep only latest
     const deduped = new Map();
     const resultsArray = Array.isArray(results) ? results : [];
     
     for (const result of resultsArray) {
-      const key = `${result.pair}-${result.timeframe}-${result.entry}-${result.signalType}`;
+      // Key: pair + signalType (one buy and one sell per pair max)
+      const key = `${result.pair}-${result.signalType}`;
+      
       if (!deduped.has(key)) {
         deduped.set(key, result);
+      } else {
+        // Keep only the newest one
+        const existing = deduped.get(key);
+        if (result.createdAt > existing.createdAt) {
+          deduped.set(key, result);
+        }
       }
     }
 
@@ -199,53 +215,56 @@ exports.getStats = async (req, res, next) => {
   }
 };
 
-// @desc    Clean up old duplicate signals
+// @desc    Clean up all old duplicate signals
 // @route   DELETE /api/scanner/cleanup-duplicates
 // @access  Private (admin only)
 exports.cleanupDuplicates = async (req, res, next) => {
   try {
-    // Get all active signals
+    // Strategy 1: For each (pair, signalType), keep only the most recent signal
+    // and delete all others
     const allSignals = await ScannerResult.findAll({
-      where: { isActive: true },
-      order: [['pair', 'ASC'], ['timeframe', 'ASC'], ['entry', 'ASC'], ['createdAt', 'DESC']]
+      order: [['pair', 'ASC'], ['signalType', 'ASC'], ['createdAt', 'DESC']],
+      raw: true
     });
 
-    // Group by (pair, timeframe, entry, signalType) and keep only the latest
-    const signalGroups = {};
     const toDelete = [];
-    let duplicatesFound = 0;
+    const seenKeys = new Set();
 
     for (const signal of allSignals) {
-      const key = `${signal.pair}-${signal.timeframe}-${signal.entry}-${signal.signalType}`;
-      if (!signalGroups[key]) {
-        signalGroups[key] = [];
-      }
-      signalGroups[key].push(signal.id);
-    }
-
-    // Mark duplicates for deletion (keep only the first/latest per group)
-    for (const ids of Object.values(signalGroups)) {
-      if (ids.length > 1) {
-        duplicatesFound += ids.length - 1;
-        // Keep the first one, delete the rest
-        toDelete.push(...ids.slice(1));
+      const key = `${signal.pair}-${signal.signalType}`;
+      
+      if (!seenKeys.has(key)) {
+        // Keep this one (first/most recent)
+        seenKeys.add(key);
+      } else {
+        // Mark for deletion (duplicate)
+        toDelete.push(signal.id);
       }
     }
 
-    // Delete old duplicates
+    // Delete all duplicates
     if (toDelete.length > 0) {
-      await ScannerResult.destroy({
-        where: {
-          id: toDelete
-        }
+      const result = await ScannerResult.destroy({
+        where: { id: toDelete }
       });
-      logger.info(`Cleaned up ${toDelete.length} duplicate signals`);
+      logger.info(`Cleaned up ${result} duplicate signal records from database`);
     }
+
+    // Strategy 2: Also delete any signals older than 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const oldDeleted = await ScannerResult.destroy({
+      where: {
+        createdAt: { [require('sequelize').Op.lt]: sevenDaysAgo }
+      }
+    });
+    logger.info(`Deleted ${oldDeleted} old signals older than 7 days`);
 
     res.status(200).json({
       success: true,
-      message: `Cleanup completed. Removed ${toDelete.length} duplicate signals`,
-      duplicatesRemoved: toDelete.length
+      message: `Database cleaned successfully`,
+      duplicatesRemoved: toDelete.length,
+      oldSignalsRemoved: oldDeleted,
+      totalRemoved: toDelete.length + oldDeleted
     });
   } catch (error) {
     logger.error('Cleanup duplicates error:', error);
