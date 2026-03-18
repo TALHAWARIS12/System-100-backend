@@ -179,7 +179,7 @@ class NotificationService {
       await this.emailTransporter.sendMail({
         from: process.env.SMTP_FROM || process.env.SENDGRID_FROM || 'signals@system100.com',
         to,
-        subject: `[System-100] ${subject}`,
+        subject: `[GOLD CIRCLE CAPITAL] ${subject}`,
         text,
         html: htmlContent
       });
@@ -201,7 +201,7 @@ class NotificationService {
       if (!pushSubscription || !pushSubscription.endpoint) return;
 
       const payload = JSON.stringify({
-        title: title || 'System-100',
+        title: title || 'GOLD CIRCLE CAPITAL',
         body: message,
         icon: '/icon-192.png',
         badge: '/icon-72.png',
@@ -258,14 +258,14 @@ class NotificationService {
     <body style="background:#0f172a;color:#e2e8f0;font-family:monospace;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;">
         <div style="text-align:center;margin-bottom:20px;">
-          <h1 style="color:#38bdf8;font-size:24px;margin:0;">SYSTEM-100</h1>
-          <p style="color:#64748b;font-size:12px;letter-spacing:2px;margin:4px 0;">TRADING INTELLIGENCE</p>
+          <h1 style="color:#38bdf8;font-size:24px;margin:0;">GOLD CIRCLE CAPITAL</h1>
+          <p style="color:#64748b;font-size:12px;letter-spacing:2px;margin:4px 0;">PROFESSIONAL TRADING SIGNALS</p>
         </div>
         <h2 style="color:#fbbf24;font-size:18px;">${title}</h2>
         <pre style="color:#e2e8f0;font-size:14px;white-space:pre-wrap;line-height:1.6;">${message}</pre>
         ${data ? `<div style="margin-top:16px;padding:12px;background:#0f172a;border-radius:8px;border:1px solid #334155;"><pre style="color:#94a3b8;font-size:12px;">${JSON.stringify(data, null, 2)}</pre></div>` : ''}
         <hr style="border-color:#334155;margin:20px 0;">
-        <p style="color:#64748b;font-size:11px;text-align:center;">System-100 Trading Platform</p>
+        <p style="color:#64748b;font-size:11px;text-align:center;">GOLD CIRCLE CAPITAL</p>
       </div>
     </body>
     </html>`;

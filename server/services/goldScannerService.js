@@ -1,6 +1,6 @@
 /**
  * Phase 2: Gold Trade Scanner Service
- * Dedicated XAUUSD scanning with System-100 strategy logic
+ * Dedicated XAUUSD scanning with GOLD CIRCLE CAPITAL strategy logic
  *
  * Uses shared IndicatorEngine for calculations.
  * Persists signals to the dedicated Signal model.
@@ -151,7 +151,7 @@ class GoldScannerService {
   // See: server/services/indicatorEngine.js
 
   /**
-   * System-100 Strategy Signal Detection
+   * GOLD CIRCLE CAPITAL Strategy Signal Detection
    * Adapted to work with IndicatorEngine.calculateAll() output
    */
   detectSignal(indicators) {
@@ -327,49 +327,50 @@ class GoldScannerService {
       const signal = this.detectSignal(indicators);
 
       if (signal) {
-        // Save to legacy ScannerResult (Phase 1 compat)
-        for (const tf of this.timeframes) {
-          const saved = await ScannerResult.create({
-            pair: signal.pair,
-            timeframe: tf,
-            signalType: signal.signalType,
-            entry: signal.entry,
-            stopLoss: signal.stopLoss,
-            takeProfit: signal.takeProfit,
-            confidence: signal.confidence,
-            strategyName: 'system100_gold',
-            indicators: signal.indicators,
-            isActive: true,
-            expiresAt: new Date(Date.now() + 4 * 3600000)
-          });
+        // Primary timeframe for the signal (15m is preferred)
+        const primaryTimeframe = '15m';
+        
+        // Save to legacy ScannerResult (Phase 1 compat) - single record only
+        const saved = await ScannerResult.create({
+          pair: signal.pair,
+          timeframe: primaryTimeframe,
+          signalType: signal.signalType,
+          entry: signal.entry,
+          stopLoss: signal.stopLoss,
+          takeProfit: signal.takeProfit,
+          confidence: signal.confidence,
+          strategyName: 'GOLD_CIRCLE_CAPITAL',
+          indicators: signal.indicators,
+          isActive: true,
+          expiresAt: new Date(Date.now() + 4 * 3600000)
+        });
 
-          // Also persist to dedicated Signal model
-          await Signal.create({
-            asset: signal.pair,
-            timeframe: tf,
-            direction: signal.signalType,
-            entry: signal.entry,
-            stopLoss: signal.stopLoss,
-            takeProfit: signal.takeProfit,
-            confidence: signal.confidence,
-            strategy: 'system100_gold',
-            indicators: signal.indicators,
-            status: 'active',
-            source: 'gold-scanner',
-            publishedAt: new Date(),
-            expiresAt: new Date(Date.now() + 4 * 3600000)
-          });
+        // Also persist to dedicated Signal model (single record)
+        await Signal.create({
+          asset: signal.pair,
+          timeframe: primaryTimeframe,
+          direction: signal.signalType,
+          entry: signal.entry,
+          stopLoss: signal.stopLoss,
+          takeProfit: signal.takeProfit,
+          confidence: signal.confidence,
+          strategy: 'GOLD_CIRCLE_CAPITAL',
+          indicators: signal.indicators,
+          status: 'active',
+          source: 'gold-scanner',
+          publishedAt: new Date(),
+          expiresAt: new Date(Date.now() + 4 * 3600000)
+        });
 
-          // Broadcast via WebSocket
-          wsService.broadcastSignal({
-            id: saved.id,
-            ...signal,
-            timeframe: tf,
-            timestamp: new Date().toISOString()
-          });
-        }
+        // Broadcast via WebSocket - single signal
+        wsService.broadcastSignal({
+          id: saved.id,
+          ...signal,
+          timeframe: primaryTimeframe,
+          timestamp: new Date().toISOString()
+        });
 
-        logger.info(`Gold signal detected: ${signal.signalType.toUpperCase()} @ ${signal.entry} (confidence: ${signal.confidence}%)`);
+        logger.info(`Gold signal detected: ${signal.signalType.toUpperCase()} @ ${signal.entry} (confidence: ${signal.confidence}%) on ${primaryTimeframe}`);
       }
 
       // Broadcast market data update regardless

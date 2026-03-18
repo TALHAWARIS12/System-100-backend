@@ -6,7 +6,7 @@ const logger = require('./logger');
 
 const defaultRooms = [
   { name: 'Gold Trading', description: 'XAUUSD trade discussion and analysis', type: 'public', requiredTier: 'none' },
-  { name: 'System-100 Signals', description: 'Official System-100 signal discussion', type: 'public', requiredTier: 'silver' },
+  { name: 'GOLD CIRCLE CAPITAL Signals', description: 'Official GOLD CIRCLE CAPITAL signal discussion', type: 'public', requiredTier: 'silver' },
   { name: 'Trade Ideas', description: 'Share and discuss trade setups', type: 'public', requiredTier: 'none' },
   { name: 'Beginner Questions', description: 'New traders welcome - ask anything', type: 'public', requiredTier: 'none' },
   { name: 'Premium Lounge', description: 'Exclusive discussion for Gold & Platinum members', type: 'public', requiredTier: 'gold' },

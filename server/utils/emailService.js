@@ -42,7 +42,7 @@ const sendEmail = async (options) => {
 
   try {
     const mailOptions = {
-      from: process.env.SMTP_FROM || 'Trading Platform <noreply@tradingplatform.com>',
+      from: process.env.SMTP_FROM || 'GOLD CIRCLE CAPITAL <noreply@goldcirclecapital.com>',
       to: options.to,
       subject: options.subject,
       html: options.html,
@@ -129,7 +129,7 @@ const sendSignalNotification = async (user, signal) => {
         </div>
         
         <div class="footer">
-          <p>This is an automated notification from Trading Platform.</p>
+          <p>This is an automated notification from GOLD CIRCLE CAPITAL.</p>
           <p>Login to your account to view all signals and manage your trades.</p>
         </div>
       </div>
@@ -162,10 +162,10 @@ const sendWelcomeEmail = async (user) => {
     </head>
     <body>
       <div class="container">
-        <div class="header">🎉 Welcome to Trading Platform!</div>
+        <div class="header">🎉 Welcome to GOLD CIRCLE CAPITAL!</div>
         
         <p>Hi ${user.firstName},</p>
-        <p>Thank you for joining Trading Platform. Your account has been successfully created.</p>
+        <p>Thank you for joining GOLD CIRCLE CAPITAL. Your account has been successfully created.</p>
         
         <p>Get started by:</p>
         <ul>
@@ -181,7 +181,7 @@ const sendWelcomeEmail = async (user) => {
         
         <p>If you have any questions, feel free to reach out to our support team.</p>
         
-        <p>Happy Trading!<br>The Trading Platform Team</p>
+        <p>Happy Trading!<br>The GOLD CIRCLE CAPITAL Team</p>
       </div>
     </body>
     </html>
@@ -189,9 +189,9 @@ const sendWelcomeEmail = async (user) => {
 
   await sendEmail({
     to: user.email,
-    subject: 'Welcome to Trading Platform! 🚀',
+    subject: 'Welcome to GOLD CIRCLE CAPITAL! 🚀',
     html,
-    text: `Welcome to Trading Platform, ${user.firstName}!`
+    text: `Welcome to GOLD CIRCLE CAPITAL, ${user.firstName}!`
   });
 };
 

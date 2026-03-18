@@ -48,7 +48,7 @@ const Signal = sequelize.define('Signal', {
   strategy: {
     type: DataTypes.STRING(50),
     allowNull: true,
-    defaultValue: 'system-100'
+    defaultValue: 'gold-circle-capital'
   },
   indicators: {
     type: DataTypes.JSONB,
