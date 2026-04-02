@@ -41,6 +41,15 @@ const Signal = sequelize.define('Signal', {
     type: DataTypes.DECIMAL(14, 5),
     allowNull: true
   },
+  takeProfit3: {
+    type: DataTypes.DECIMAL(14, 5),
+    allowNull: true
+  },
+  pattern: {
+    type: DataTypes.STRING(100),
+    allowNull: true,
+    comment: 'Pattern name (e.g., Harmonic Patterns, Support/Resistance, MACD Divergence)'
+  },
   confidence: {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: true

@@ -220,6 +220,10 @@ const startServer = async () => {
     const { initializeMasterAdmin } = require('./utils/initAdmin');
     await initializeMasterAdmin();
     
+    // Initialize database schema and scanner configs
+    const { initDatabase } = require('./utils/initDatabase');
+    await initDatabase();
+    
     // Initialize default scanner strategies
     const { initializeDefaultStrategies } = require('./utils/initStrategies');
     await initializeDefaultStrategies();

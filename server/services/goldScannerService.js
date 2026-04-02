@@ -255,6 +255,8 @@ class GoldScannerService {
     // Calculate SL/TP using ATR
     const slDistance = currentATR * 2;
     const tpDistance = currentATR * 3;
+    const tp2Distance = currentATR * 5;  // 5x ATR for TP2
+    const tp3Distance = currentATR * 7;  // 7x ATR for TP3
 
     return {
       pair: this.pair,
@@ -266,6 +268,13 @@ class GoldScannerService {
       takeProfit: signalType === 'buy'
         ? parseFloat((currentPrice + tpDistance).toFixed(2))
         : parseFloat((currentPrice - tpDistance).toFixed(2)),
+      takeProfit2: signalType === 'buy'
+        ? parseFloat((currentPrice + tp2Distance).toFixed(2))
+        : parseFloat((currentPrice - tp2Distance).toFixed(2)),
+      takeProfit3: signalType === 'buy'
+        ? parseFloat((currentPrice + tp3Distance).toFixed(2))
+        : parseFloat((currentPrice - tp3Distance).toFixed(2)),
+      pattern: 'Gold Circle Capital Strategy',
       confidence,
       reasons,
       indicators: {
@@ -355,6 +364,9 @@ class GoldScannerService {
           entry: signal.entry,
           stopLoss: signal.stopLoss,
           takeProfit: signal.takeProfit,
+          takeProfit2: signal.takeProfit2,
+          takeProfit3: signal.takeProfit3,
+          pattern: signal.pattern,
           confidence: signal.confidence,
           strategyName: 'GOLD_CIRCLE_CAPITAL',
           indicators: signal.indicators,
@@ -370,6 +382,9 @@ class GoldScannerService {
           entry: signal.entry,
           stopLoss: signal.stopLoss,
           takeProfit: signal.takeProfit,
+          takeProfit2: signal.takeProfit2,
+          takeProfit3: signal.takeProfit3,
+          pattern: signal.pattern,
           confidence: signal.confidence,
           strategy: 'GOLD_CIRCLE_CAPITAL',
           indicators: signal.indicators,

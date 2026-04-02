@@ -21,27 +21,32 @@ exports.getResults = async (req, res, next) => {
       }
     });
 
-    // Fetch signals with extra buffer for deduplication
+    // Fetch signals with normal limit
     const results = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit) * 3 // Fetch more to deduplicate
+      limit: parseInt(limit)
     });
 
-    // Aggressive deduplication: group by pair + signalType, keep only latest
+    // Smart deduplication: prevent exact duplicates within 30 minutes, allow multiple signals per pair
     const deduped = new Map();
     const resultsArray = Array.isArray(results) ? results : [];
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
     
     for (const result of resultsArray) {
-      // Key: pair + signalType (one buy and one sell per pair max)
-      const key = `${result.pair}-${result.signalType}`;
+      // Key: pair + signalType + entry price (rounded to 2 decimals) to prevent exact duplicates
+      const entryRounded = Math.round(parseFloat(result.entry) * 100) / 100;
+      const key = `${result.pair}-${result.signalType}-${entryRounded}`;
       
       if (!deduped.has(key)) {
-        deduped.set(key, result);
-      } else {
-        // Keep only the newest one
-        const existing = deduped.get(key);
-        if (result.createdAt > existing.createdAt) {
+        // Only skip if we have an identical signal from the last 30 minutes
+        const existingSignals = resultsArray.filter(r => {
+          const rEntryRounded = Math.round(parseFloat(r.entry) * 100) / 100;
+          const rKey = `${r.pair}-${r.signalType}-${rEntryRounded}`;
+          return rKey === key && r.createdAt > thirtyMinutesAgo;
+        });
+        
+        if (existingSignals.length <= 1) {
           deduped.set(key, result);
         }
       }

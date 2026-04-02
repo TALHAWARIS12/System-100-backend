@@ -1220,6 +1220,31 @@ class ScannerEngine {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
+      // Calculate TP2 and TP3 if not provided
+      let tp2 = signal.takeProfit2;
+      let tp3 = signal.takeProfit3;
+      
+      if (!tp2 || !tp3) {
+        // Calculate based on risk/reward ratio
+        const riskAmount = Math.abs(signal.entry - signal.stopLoss);
+        
+        if (!tp2) {
+          if (signal.type === 'buy') {
+            tp2 = signal.entry + (riskAmount * 1.5); // 1.5x risk for TP2
+          } else {
+            tp2 = signal.entry - (riskAmount * 1.5);
+          }
+        }
+        
+        if (!tp3) {
+          if (signal.type === 'buy') {
+            tp3 = signal.entry + (riskAmount * 2.5); // 2.5x risk for TP3
+          } else {
+            tp3 = signal.entry - (riskAmount * 2.5);
+          }
+        }
+      }
+
       const savedSignal = await ScannerResult.create({
         pair,
         timeframe,
@@ -1227,6 +1252,9 @@ class ScannerEngine {
         entry: signal.entry,
         stopLoss: signal.stopLoss,
         takeProfit: signal.takeProfit,
+        takeProfit2: tp2,
+        takeProfit3: tp3,
+        pattern: signal.pattern || strategyName, // Use pattern name if provided, else use strategy name
         confidence: signal.confidence,
         strategyName,
         indicators: signal.indicators,
@@ -1234,7 +1262,7 @@ class ScannerEngine {
         expiresAt
       });
 
-      logger.info(`Signal saved: ${signal.type} ${pair} @ ${signal.entry}`);
+      logger.info(`Signal saved: ${signal.type} ${pair} @ ${signal.entry} (TP1: ${signal.takeProfit}, TP2: ${tp2}, TP3: ${tp3})`);
 
       // Send email notifications to subscribed users (async, don't block)
       this.notifyUsers(savedSignal).catch(err => {

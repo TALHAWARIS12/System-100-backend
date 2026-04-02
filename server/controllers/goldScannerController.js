@@ -53,24 +53,34 @@ exports.getSignals = async (req, res, next) => {
     const signals = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit) * 3 // Fetch extra to deduplicate
+      limit: parseInt(limit)
     });
 
-    // Aggressive deduplication: keep only ONE signal per signalType
-    // (one BUY and one SELL max for XAUUSD)
-    const deduped = {};
+    // Smart deduplication: prevent exact duplicates within 30 minutes
+    const deduped = new Map();
     const signalsArray = Array.isArray(signals) ? signals : [];
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
     
     for (const signal of signalsArray) {
-      const signalType = signal.signalType; // 'buy' or 'sell'
+      // Key: signalType + entry price (rounded to 2 decimals)
+      const entryRounded = Math.round(parseFloat(signal.entry) * 100) / 100;
+      const key = `${signal.signalType}-${entryRounded}`;
       
-      // Only keep the first (most recent) signal for this type
-      if (!deduped[signalType]) {
-        deduped[signalType] = signal;
+      if (!deduped.has(key)) {
+        // Only skip if we have an identical signal from the last 30 minutes
+        const identicalRecent = signalsArray.filter(s => {
+          const sEntryRounded = Math.round(parseFloat(s.entry) * 100) / 100;
+          const sKey = `${s.signalType}-${sEntryRounded}`;
+          return sKey === key && s.createdAt > thirtyMinutesAgo;
+        });
+        
+        if (identicalRecent.length <= 1) {
+          deduped.set(key, signal);
+        }
       }
     }
 
-    const uniqueSignals = Object.values(deduped).slice(0, parseInt(limit));
+    const uniqueSignals = Array.from(deduped.values()).slice(0, parseInt(limit));
 
     res.json({ success: true, signals: uniqueSignals });
   } catch (error) {
