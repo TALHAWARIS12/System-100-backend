@@ -8,12 +8,14 @@
  *   5. Caches latest prices in memory (and Redis when available)
  *
  * This service runs continuously via cron. It does NOT use mock/static data.
+ * OPTIMIZED: Runs every 10 minutes to prevent free tier API exhaustion
  */
 const axios = require('axios');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 const { MarketData, Candle, DataSource } = require('../models');
 const wsService = require('./websocketService');
+const cache = require('./redisCache');
 
 class MarketDataService {
   constructor() {
@@ -24,6 +26,8 @@ class MarketDataService {
     this.isRunning = false;
     // Redis client (optional, set via setRedis)
     this.redis = null;
+    // Cache TTL: 10 minutes to match scan frequency
+    this.cacheTTL = 10 * 60;
   }
 
   /**
@@ -35,7 +39,7 @@ class MarketDataService {
   }
 
   /**
-   * Main fetch cycle — called by cron every 1-5 minutes
+   * Main fetch cycle — called by cron every 10 minutes
    * Fetches prices for all tracked assets, stores, and broadcasts
    */
   async fetchAll() {
@@ -45,7 +49,7 @@ class MarketDataService {
     }
 
     this.isRunning = true;
-    const results = { fetched: 0, errors: 0 };
+    const results = { fetched: 0, errors: 0, cached: 0 };
 
     try {
       const sources = await DataSource.findAll({
@@ -61,8 +65,20 @@ class MarketDataService {
 
       for (const asset of this.assets) {
         try {
+          // Check cache first
+          const cacheKey = `market-price:${asset}`;
+          const cached = await cache.get(cacheKey);
+          if (cached) {
+            logger.debug(`MarketDataService: Using cached price for ${asset}`);
+            await this.processPrice(asset, cached, true);
+            results.cached++;
+            continue;
+          }
+
           const data = await this.fetchAssetPrice(asset, sources);
           if (data) {
+            // Cache the result for 10 minutes
+            await cache.set(cacheKey, data, this.cacheTTL);
             await this.processPrice(asset, data);
             results.fetched++;
           }
@@ -72,7 +88,7 @@ class MarketDataService {
         }
       }
 
-      logger.info(`MarketDataService: Cycle complete — ${results.fetched} fetched, ${results.errors} errors`);
+      logger.info(`MarketDataService: Cycle complete — ${results.fetched} fetched, ${results.cached} cached, ${results.errors} errors`);
     } catch (error) {
       logger.error('MarketDataService: fetchAll error:', error.message);
     } finally {
@@ -88,7 +104,11 @@ class MarketDataService {
   async fetchAssetPrice(asset, sources) {
     for (const source of sources) {
       try {
-        if (source.usageCount >= source.rateLimit) continue;
+        // Skip if rate limit already exceeded
+        if (source.usageCount >= source.rateLimit) {
+          logger.debug(`MarketDataService: ${source.provider} rate limit reached (${source.usageCount}/${source.rateLimit})`);
+          continue;
+        }
 
         const data = await this.fetchFromProvider(source, asset);
         if (data) {
@@ -100,8 +120,17 @@ class MarketDataService {
           return { ...data, source: source.provider };
         }
       } catch (err) {
-        logger.debug(`MarketDataService: ${source.provider} failed for ${asset}: ${err.message}`);
-        await source.update({ lastError: err.message }).catch(() => {});
+        // Detect rate limit errors
+        if (err.response?.status === 429 || err.message?.includes('rate limit')) {
+          logger.warn(`MarketDataService: ${source.provider} rate limited for ${asset}`);
+          await source.update({ 
+            usageCount: source.rateLimit, // Mark as exhausted
+            lastError: `Rate limit: ${err.message}`
+          }).catch(() => {});
+        } else {
+          logger.debug(`MarketDataService: ${source.provider} failed for ${asset}: ${err.message}`);
+          await source.update({ lastError: err.message }).catch(() => {});
+        }
         continue;
       }
     }
@@ -232,24 +261,26 @@ class MarketDataService {
    *   4. Broadcast via WebSocket
    *   5. Aggregate into candles
    */
-  async processPrice(asset, data) {
+  async processPrice(asset, data, isCached = false) {
     const { price, bid, ask, volume, source, timestamp } = data;
 
     // 1. Get previous price for change calculation
     const prev = this.priceCache.get(asset);
     const change24h = prev ? ((price - prev.price) / prev.price) * 100 : 0;
 
-    // 2. Store in database
-    await MarketData.create({
-      asset,
-      price,
-      bid: bid || null,
-      ask: ask || null,
-      volume: volume || 0,
-      change24h,
-      source: source || 'unknown',
-      fetchedAt: new Date(timestamp || Date.now())
-    });
+    // 2. Store in database (only for fresh data, not cached)
+    if (!isCached) {
+      await MarketData.create({
+        asset,
+        price,
+        bid: bid || null,
+        ask: ask || null,
+        volume: volume || 0,
+        change24h,
+        source: source || 'unknown',
+        fetchedAt: new Date(timestamp || Date.now())
+      });
+    }
 
     // 3. Update in-memory cache
     const cacheEntry = {
@@ -262,7 +293,8 @@ class MarketDataService {
       high24h: prev ? Math.max(prev.high24h || price, price) : price,
       low24h: prev ? Math.min(prev.low24h || price, price) : price,
       source,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      isCached: isCached
     };
     this.priceCache.set(asset, cacheEntry);
 

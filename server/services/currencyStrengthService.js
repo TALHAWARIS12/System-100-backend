@@ -1,6 +1,8 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { DataSource } = require('../models');
+const rateLimiter = require('./rateLimiter');
+const cache = require('./redisCache');
 
 /**
  * Currency Strength Meter Service
@@ -25,8 +27,11 @@ class CurrencyStrengthService {
     this.cache = {
       data: null,
       lastFetch: null,
-      ttl: 5 * 60 * 1000 // 5 minutes cache
+      ttl: 30 * 60 * 1000 // 30 minutes cache (increased from 5 min to prevent API exhaustion)
     };
+
+    // Initialize rate limiter for free APIs
+    rateLimiter.registerProvider('exchangerate-api', 1500, 30 * 24 * 60 * 60 * 1000, 2); // 1500/month
   }
 
   /**
@@ -64,6 +69,13 @@ class CurrencyStrengthService {
    */
   async fetchPriceData() {
     try {
+      // Check distributed cache first
+      const cached = await cache.get('currency-strength:prices');
+      if (cached) {
+        logger.debug('Using cached price data');
+        return cached;
+      }
+
       // Try to get active data source
       const dataSource = await DataSource.findOne({
         where: { isActive: true },
@@ -92,42 +104,58 @@ class CurrencyStrengthService {
   }
 
   /**
-   * Fetch from free forex API
+   * Fetch from free forex API with rate limiting
    */
   async fetchFromFreeAPI() {
     try {
-      // Using Exchange Rate API as fallback (free tier)
-      const response = await axios.get(
-        'https://api.exchangerate-api.com/v4/latest/USD',
-        { timeout: 10000 }
+      const priceData = await rateLimiter.queueRequest(
+        'exchangerate-api',
+        async () => {
+          // Using Exchange Rate API as fallback (free tier: 1500 req/month)
+          const response = await axios.get(
+            'https://api.exchangerate-api.com/v4/latest/USD',
+            { timeout: 10000 }
+          );
+
+          const rates = response.data.rates;
+          
+          // Convert to pair format
+          const data = {};
+          
+          // USD pairs
+          data['EURUSD'] = { current: 1 / rates.EUR, previous: (1 / rates.EUR) * 0.999 };
+          data['GBPUSD'] = { current: 1 / rates.GBP, previous: (1 / rates.GBP) * 0.998 };
+          data['USDJPY'] = { current: rates.JPY, previous: rates.JPY * 1.001 };
+          data['USDCHF'] = { current: rates.CHF, previous: rates.CHF * 0.999 };
+          data['AUDUSD'] = { current: 1 / rates.AUD, previous: (1 / rates.AUD) * 1.002 };
+          data['USDCAD'] = { current: rates.CAD, previous: rates.CAD * 1.001 };
+          data['NZDUSD'] = { current: 1 / rates.NZD, previous: (1 / rates.NZD) * 0.998 };
+          
+          // Cross pairs
+          data['EURGBP'] = { current: rates.GBP / rates.EUR, previous: (rates.GBP / rates.EUR) * 0.999 };
+          data['EURJPY'] = { current: rates.JPY / rates.EUR, previous: (rates.JPY / rates.EUR) * 1.001 };
+          data['GBPJPY'] = { current: rates.JPY / rates.GBP, previous: (rates.JPY / rates.GBP) * 1.002 };
+          data['AUDJPY'] = { current: rates.JPY / rates.AUD, previous: (rates.JPY / rates.AUD) * 0.998 };
+          data['CADJPY'] = { current: rates.JPY / rates.CAD, previous: (rates.JPY / rates.CAD) * 1.001 };
+          data['CHFJPY'] = { current: rates.JPY / rates.CHF, previous: (rates.JPY / rates.CHF) * 0.999 };
+          data['NZDJPY'] = { current: rates.JPY / rates.NZD, previous: (rates.JPY / rates.NZD) * 1.002 };
+          
+          return data;
+        }
       );
 
-      const rates = response.data.rates;
-      
-      // Convert to pair format
-      const priceData = {};
-      
-      // USD pairs
-      priceData['EURUSD'] = { current: 1 / rates.EUR, previous: (1 / rates.EUR) * 0.999 };
-      priceData['GBPUSD'] = { current: 1 / rates.GBP, previous: (1 / rates.GBP) * 0.998 };
-      priceData['USDJPY'] = { current: rates.JPY, previous: rates.JPY * 1.001 };
-      priceData['USDCHF'] = { current: rates.CHF, previous: rates.CHF * 0.999 };
-      priceData['AUDUSD'] = { current: 1 / rates.AUD, previous: (1 / rates.AUD) * 1.002 };
-      priceData['USDCAD'] = { current: rates.CAD, previous: rates.CAD * 1.001 };
-      priceData['NZDUSD'] = { current: 1 / rates.NZD, previous: (1 / rates.NZD) * 0.998 };
-      
-      // Cross pairs
-      priceData['EURGBP'] = { current: rates.GBP / rates.EUR, previous: (rates.GBP / rates.EUR) * 0.999 };
-      priceData['EURJPY'] = { current: rates.JPY / rates.EUR, previous: (rates.JPY / rates.EUR) * 1.001 };
-      priceData['GBPJPY'] = { current: rates.JPY / rates.GBP, previous: (rates.JPY / rates.GBP) * 1.002 };
-      priceData['AUDJPY'] = { current: rates.JPY / rates.AUD, previous: (rates.JPY / rates.AUD) * 0.998 };
-      priceData['CADJPY'] = { current: rates.JPY / rates.CAD, previous: (rates.JPY / rates.CAD) * 1.001 };
-      priceData['CHFJPY'] = { current: rates.JPY / rates.CHF, previous: (rates.JPY / rates.CHF) * 0.999 };
-      priceData['NZDJPY'] = { current: rates.JPY / rates.NZD, previous: (rates.JPY / rates.NZD) * 1.002 };
-      
+      // Cache for 30 minutes
+      await cache.set('currency-strength:prices', priceData, 1800);
       return priceData;
     } catch (error) {
       logger.error('Free API fetch error:', error.message);
+      
+      // If rate limited, use fallback sample data
+      if (error.message?.includes('rate limit') || error.response?.status === 429) {
+        logger.warn('Rate limit detected on exchangerate-api, returning sample data');
+        return this.getSamplePriceData();
+      }
+      
       return this.getSamplePriceData();
     }
   }

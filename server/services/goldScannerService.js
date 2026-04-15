@@ -11,6 +11,8 @@ const logger = require('../utils/logger');
 const { ScannerResult, DataSource, Signal, Candle } = require('../models');
 const wsService = require('./websocketService');
 const IndicatorEngine = require('./indicatorEngine');
+const rateLimiter = require('./rateLimiter');
+const cache = require('./redisCache');
 
 class GoldScannerService {
   constructor() {
@@ -19,13 +21,23 @@ class GoldScannerService {
     this.lastPrices = [];
     this.indicators = {};
     this.isRunning = false;
+
+    // Initialize rate limiters for free APIs
+    rateLimiter.registerProvider('metals.live', 1000, 24 * 60 * 60 * 1000, 2); // 1000/day estimate
   }
 
   /**
-   * Fetch live gold price from available data sources
+   * Fetch live gold price from available data sources with caching
    */
   async fetchGoldPrice() {
     try {
+      // Check cache first (5 minute cache for gold prices)
+      const cached = await cache.get('gold-price:latest');
+      if (cached && cached.timestamp && (Date.now() - cached.timestamp) < 5 * 60 * 1000) {
+        logger.debug('Using cached gold price data');
+        return cached.data;
+      }
+
       const sources = await DataSource.findAll({
         where: { isActive: true },
         order: [['priority', 'ASC']]
@@ -34,7 +46,11 @@ class GoldScannerService {
       for (const source of sources) {
         try {
           const data = await this.fetchFromProvider(source);
-          if (data) return data;
+          if (data) {
+            // Cache the result
+            await cache.set('gold-price:latest', { data, timestamp: Date.now() }, 300);
+            return data;
+          }
         } catch (err) {
           logger.warn(`Gold price source ${source.name} failed: ${err.message}`);
           continue;
@@ -121,22 +137,51 @@ class GoldScannerService {
 
   async fetchFromFallback() {
     try {
-      // Try metals.live free API
-      const res = await axios.get('https://api.metals.live/v1/spot/gold', { timeout: 8000 });
-      if (res.data && Array.isArray(res.data)) {
-        const price = res.data[res.data.length - 1];
-        // Return a single-point data set for current price
-        return [{
-          time: Date.now(),
-          open: price.price,
-          high: price.price,
-          low: price.price,
-          close: price.price,
-          volume: 0
-        }];
+      logger.info('Using free API fallback for gold price');
+      
+      // Use rate limiter to prevent exhausting free tier
+      const data = await rateLimiter.queueRequest(
+        'metals.live',
+        async () => {
+          const res = await axios.get('https://api.metals.live/v1/spot/gold', { 
+            timeout: 8000,
+            headers: { 'User-Agent': 'GoldScannerBot/1.0' }
+          });
+          
+          if (res.data && Array.isArray(res.data)) {
+            const price = res.data[res.data.length - 1];
+            // Return a single-point data set for current price
+            return [{
+              time: Date.now(),
+              open: price.price,
+              high: price.price,
+              low: price.price,
+              close: price.price,
+              volume: 0
+            }];
+          }
+          return null;
+        }
+      );
+
+      if (data) {
+        // Cache for 5 minutes
+        await cache.set('gold-price:latest', { data, timestamp: Date.now() }, 300);
       }
-    } catch (e) { /* silent */ }
-    return null;
+      return data;
+    } catch (error) {
+      // If rate limited, check cache for fallback
+      if (error.message?.includes('rate limit')) {
+        logger.warn('metals.live rate limited, checking cache for fallback data');
+        const cached = await cache.get('gold-price:latest');
+        if (cached?.data) {
+          logger.info('Using stale cached gold price from %d minutes ago', Math.round((Date.now() - cached.timestamp) / 60000));
+          return cached.data;
+        }
+      }
+      logger.error('Free API fallback failed:', error.message);
+      return null;
+    }
   }
 
   /**
