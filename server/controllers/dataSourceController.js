@@ -214,6 +214,24 @@ exports.testDataSource = async (req, res, next) => {
     });
     const latency = Date.now() - startTime;
 
+    // Check for API errors in response body
+    if (response.data?.Error || response.data?.['Error Message'] || response.data?.Note || response.data?.Information) {
+      const apiError = response.data.Error || response.data['Error Message'] || response.data.Note || response.data.Information;
+      
+      await DataSource.update(
+        { lastError: apiError },
+        { where: { id: req.params.id } }
+      );
+
+      logger.warn(`Data source ${source.name} returned API error: ${apiError}`);
+
+      return res.status(200).json({
+        success: false,
+        message: 'API error',
+        error: apiError
+      });
+    }
+
     // Update last used
     await source.update({
       lastUsed: new Date(),

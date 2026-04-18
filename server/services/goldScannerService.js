@@ -70,65 +70,95 @@ class GoldScannerService {
 
     switch (provider) {
       case 'twelvedata': {
-        const res = await axios.get(`${baseUrl}/time_series`, {
-          params: { symbol: 'XAU/USD', interval: '5min', outputsize: 100, apikey: apiKey },
-          timeout: 10000
-        });
-        if (res.data?.values) {
-          return res.data.values.map(v => ({
-            time: new Date(v.datetime).getTime(),
-            open: parseFloat(v.open),
-            high: parseFloat(v.high),
-            low: parseFloat(v.low),
-            close: parseFloat(v.close),
-            volume: parseFloat(v.volume || 0)
-          })).reverse();
+        try {
+          const res = await axios.get(`${baseUrl}/time_series`, {
+            params: { symbol: 'XAU/USD', interval: '5min', outputsize: 100, apikey: apiKey },
+            timeout: 10000
+          });
+          if (res.data?.values) {
+            return res.data.values.map(v => ({
+              time: new Date(v.datetime).getTime(),
+              open: parseFloat(v.open),
+              high: parseFloat(v.high),
+              low: parseFloat(v.low),
+              close: parseFloat(v.close),
+              volume: parseFloat(v.volume || 0)
+            })).reverse();
+          }
+          return null;
+        } catch (error) {
+          logger.warn(`TwelveData API error: ${error.message}`);
+          return null;
         }
-        return null;
       }
       case 'alphavantage': {
-        const res = await axios.get(`${baseUrl}/query`, {
-          params: {
-            function: 'FX_INTRADAY',
-            from_symbol: 'XAU',
-            to_symbol: 'USD',
-            interval: '5min',
-            outputsize: 'compact',
-            apikey: apiKey
-          },
-          timeout: 10000
-        });
-        const tsKey = Object.keys(res.data).find(k => k.includes('Time Series'));
-        if (tsKey && res.data[tsKey]) {
-          return Object.entries(res.data[tsKey]).map(([time, vals]) => ({
-            time: new Date(time).getTime(),
-            open: parseFloat(vals['1. open']),
-            high: parseFloat(vals['2. high']),
-            low: parseFloat(vals['3. low']),
-            close: parseFloat(vals['4. close']),
-            volume: 0
-          })).reverse();
+        try {
+          const res = await axios.get(`${baseUrl}/query`, {
+            params: {
+              function: 'FX_INTRADAY',
+              from_symbol: 'XAU',
+              to_symbol: 'USD',
+              interval: '5min',
+              outputsize: 'compact',
+              apikey: apiKey
+            },
+            timeout: 10000
+          });
+          
+          // Check for API errors in response body
+          if (res.data?.Error || res.data?.Note) {
+            const errorMsg = res.data.Error || res.data.Note;
+            logger.warn(`Alpha Vantage API error: ${errorMsg}`);
+            return null;
+          }
+          
+          const tsKey = Object.keys(res.data).find(k => k.includes('Time Series'));
+          if (tsKey && res.data[tsKey]) {
+            return Object.entries(res.data[tsKey]).map(([time, vals]) => ({
+              time: new Date(time).getTime(),
+              open: parseFloat(vals['1. open']),
+              high: parseFloat(vals['2. high']),
+              low: parseFloat(vals['3. low']),
+              close: parseFloat(vals['4. close']),
+              volume: 0
+            })).reverse();
+          }
+          return null;
+        } catch (error) {
+          logger.warn(`Alpha Vantage HTTP error: ${error.message}`);
+          return null;
         }
-        return null;
       }
       case 'polygon': {
-        const to = new Date().toISOString().split('T')[0];
-        const from = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-        const res = await axios.get(`${baseUrl}/v2/aggs/ticker/C:XAUUSD/range/5/minute/${from}/${to}`, {
-          params: { apiKey, limit: 100, sort: 'asc' },
-          timeout: 10000
-        });
-        if (res.data?.results) {
-          return res.data.results.map(r => ({
-            time: r.t,
-            open: r.o,
-            high: r.h,
-            low: r.l,
-            close: r.c,
-            volume: r.v || 0
-          }));
+        try {
+          const to = new Date().toISOString().split('T')[0];
+          const from = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+          const res = await axios.get(`${baseUrl}/v2/aggs/ticker/C:XAUUSD/range/5/minute/${from}/${to}`, {
+            params: { apiKey, limit: 100, sort: 'asc' },
+            timeout: 10000
+          });
+          
+          // Check for API errors
+          if (res.data?.status === 'error' || !res.data?.results) {
+            logger.warn(`Polygon API error: ${res.data?.message || 'No data'}`);
+            return null;
+          }
+          
+          if (res.data?.results) {
+            return res.data.results.map(r => ({
+              time: r.t,
+              open: r.o,
+              high: r.h,
+              low: r.l,
+              close: r.c,
+              volume: r.v || 0
+            }));
+          }
+          return null;
+        } catch (error) {
+          logger.warn(`Polygon HTTP error: ${error.message}`);
+          return null;
         }
-        return null;
       }
       default:
         return null;
