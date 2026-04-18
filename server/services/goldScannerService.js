@@ -39,9 +39,13 @@ class GoldScannerService {
       }
 
       const sources = await DataSource.findAll({
-        where: { isActive: true },
+        where: { isActive: true }, // Only use ACTIVE sources
         order: [['priority', 'ASC']]
       });
+
+      if (sources.length === 0) {
+        logger.warn('No active data sources configured, using free fallback API');
+      }
 
       for (const source of sources) {
         try {
@@ -52,7 +56,7 @@ class GoldScannerService {
             return data;
           }
         } catch (err) {
-          logger.warn(`Gold price source ${source.name} failed: ${err.message}`);
+          logger.warn(`Gold price source ${source.name} (${source.provider}) failed: ${err.message}`);
           continue;
         }
       }
@@ -167,7 +171,7 @@ class GoldScannerService {
 
   async fetchFromFallback() {
     try {
-      logger.info('Using free API fallback for gold price');
+      logger.info('📍 Using FREE API fallback for gold price (metals.live)');
       
       // Use rate limiter to prevent exhausting free tier
       const data = await rateLimiter.queueRequest(

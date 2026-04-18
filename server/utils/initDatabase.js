@@ -4,7 +4,7 @@
  * Syncs database schema with updated models
  */
 
-const { ScannerConfig, ScannerResult, Signal, Candle,Notification } = require('../models');
+const { ScannerConfig, ScannerResult, Signal, Candle, Notification, DataSource } = require('../models');
 const logger = require('./logger');
 
 async function initDatabase() {
@@ -21,6 +21,9 @@ async function initDatabase() {
 
     // Initialize default scanner configurations
     await initializeScannerConfigs();
+
+    // Initialize free API data sources (disable paid APIs with rate limits)
+    await initializeFreeAPIs();
 
     // Clean up old expired signals
     await cleanupExpiredSignals();
@@ -168,4 +171,61 @@ async function cleanupExpiredSignals() {
   }
 }
 
-module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals };
+async function initializeFreeAPIs() {
+  try {
+    logger.info('📡 Initializing free API data sources (disabling rate-limited APIs)...');
+
+    const sources = [
+      {
+        name: 'TwelveData Free',
+        provider: 'twelvedata',
+        baseUrl: 'https://api.twelvedata.com',
+        apiKey: process.env.TWELVEDATA_API_KEY || 'demo',
+        priority: 1,
+        isActive: !!process.env.TWELVEDATA_API_KEY,
+        rateLimit: 800,
+        configuration: { requestsPerDay: 800 }
+      },
+      {
+        name: 'Polygon.io Free',
+        provider: 'polygon',
+        baseUrl: 'https://api.polygon.io',
+        apiKey: process.env.POLYGON_API_KEY || 'PG_KEY',
+        priority: 2,
+        isActive: !!process.env.POLYGON_API_KEY,
+        rateLimit: 5,
+        configuration: { requestsPerMinute: 5 }
+      },
+      {
+        name: 'Alpha Vantage',
+        provider: 'alphavantage',
+        baseUrl: 'https://www.alphavantage.co',
+        apiKey: process.env.ALPHAVANTAGE_API_KEY || 'demo',
+        priority: 99,
+        isActive: false, // DISABLED - has 25 req/day limit
+        rateLimit: 25,
+        configuration: { status: 'DISABLED - 25 requests/day limit too low' }
+      }
+    ];
+
+    for (const source of sources) {
+      const [dataSource, created] = await DataSource.findOrCreate({
+        where: { provider: source.provider },
+        defaults: source
+      });
+
+      if (!created) {
+        // Update existing source to reflect current settings
+        await dataSource.update(source);
+      }
+
+      logger.info(`  ${source.isActive ? '✅' : '⛔'} ${source.name} - Priority: ${source.priority}`);
+    }
+
+    logger.info('✅ API data sources initialized');
+  } catch (error) {
+    logger.warn('⚠️  API data source initialization warning:', error.message);
+  }
+}
+
+module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals, initializeFreeAPIs };
