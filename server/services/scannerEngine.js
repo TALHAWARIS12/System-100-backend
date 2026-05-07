@@ -56,6 +56,7 @@ class ScannerEngine {
         for (const timeframe of config.timeframes) {
           try {
             // Get market data from configured data source
+            logger.info(`Fetching market data for ${pair} ${timeframe}`);
             const marketData = await this.getMarketData(pair, timeframe);
             
             if (!marketData) {
@@ -63,10 +64,13 @@ class ScannerEngine {
               continue;
             }
             
+            logger.info(`Got ${marketData.candles?.length || 0} candles for ${pair} ${timeframe}`);
+            
             // Apply strategy
             const signal = await strategy(marketData, config.rules);
             
             if (signal) {
+              logger.info(`Signal generated: ${pair} ${timeframe} - ${JSON.stringify(signal)}`);
               // Save signal to database
               await this.saveSignal({
                 pair,
@@ -97,13 +101,17 @@ class ScannerEngine {
         order: [['priority', 'ASC']]
       });
 
+      logger.info(`Found ${sources.length} active data sources for ${pair} ${timeframe}`);
+      
       if (sources.length === 0) {
-        throw new Error('No active data sources configured');
+        throw new Error('No active data sources configured - please enable at least one data source in Admin panel');
       }
 
       // Try each source until one works
       for (const source of sources) {
         try {
+          logger.info(`Trying data source: ${source.name} (${source.provider}), Usage: ${source.usageCount}/${source.rateLimit}`);
+          
           // Check rate limit
           if (source.usageCount >= source.rateLimit) {
             logger.warn(`Rate limit exceeded for ${source.name}`);
@@ -113,6 +121,7 @@ class ScannerEngine {
           const data = await this.fetchDataFromSource(source, pair, timeframe);
           
           if (data) {
+            logger.info(`✓ Success with ${source.name}`);
             // Update usage counter
             await source.update({
               usageCount: source.usageCount + 1,
@@ -123,7 +132,7 @@ class ScannerEngine {
             return data;
           }
         } catch (error) {
-          logger.error(`Data source ${source.name} failed:`, error.message);
+          logger.error(`✗ Data source ${source.name} failed:`, error.message);
           
           // Log error to data source
           await source.update({

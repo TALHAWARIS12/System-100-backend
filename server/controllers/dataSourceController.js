@@ -176,10 +176,18 @@ exports.testDataSource = async (req, res, next) => {
         break;
 
       case 'twelvedata':
-        testUrl = `${source.baseUrl}/time_series`;
-        testParams.symbol = 'EUR/USD';
-        testParams.interval = '1h';
-        testParams.apikey = source.apiKey;
+        // Validate API key exists
+        if (!source.apiKey) {
+          return res.status(400).json({
+            success: false,
+            message: 'API key is not configured for this data source'
+          });
+        }
+        testUrl = `${source.baseUrl}/price`;
+        testParams = {
+          symbol: 'EUR/USD',
+          apikey: source.apiKey
+        };
         break;
 
       case 'polygon':
