@@ -129,30 +129,41 @@ class ScannerEngine {
         order: [['priority', 'ASC']]
       });
 
-      logger.info(`Found ${sources.length} active data sources for ${pair} ${timeframe}`);
+      logger.info(`\n📊 Getting market data for ${pair} ${timeframe}`);
+      logger.info(`Found ${sources.length} active data sources`);
       
       if (sources.length === 0) {
         throw new Error('No active data sources configured - please enable at least one data source in Admin panel');
       }
 
+      // Debug: Log each source's details
+      sources.forEach((source, idx) => {
+        const clean = source.toJSON ? source.toJSON() : source;
+        const hasKey = !!clean.apiKey;
+        const keyPreview = clean.apiKey ? `${clean.apiKey.substring(0, 5)}...` : 'EMPTY';
+        logger.info(`   ${idx + 1}. ${clean.name} - Provider: ${clean.provider} - API Key: ${hasKey ? '✅' : '❌'} ${keyPreview}`);
+      });
+
       // Try each source until one works
       for (const source of sources) {
         try {
-          logger.info(`Trying data source: ${source.name} (${source.provider}), Usage: ${source.usageCount}/${source.rateLimit}`);
+          const clean = source.toJSON ? source.toJSON() : source;
+          logger.info(`\n▶️  Trying: ${clean.name} (${clean.provider})`);
+          logger.info(`   Usage: ${clean.usageCount}/${clean.rateLimit}`);
           
           // Check rate limit
-          if (source.usageCount >= source.rateLimit) {
-            logger.warn(`Rate limit exceeded for ${source.name}`);
+          if (clean.usageCount >= clean.rateLimit) {
+            logger.warn(`   ⚠️  Rate limit exceeded`);
             continue;
           }
 
           const data = await this.fetchDataFromSource(source, pair, timeframe);
           
           if (data) {
-            logger.info(`✓ Success with ${source.name}`);
+            logger.info(`✅ Success with ${clean.name}`);
             // Update usage counter
             await source.update({
-              usageCount: source.usageCount + 1,
+              usageCount: clean.usageCount + 1,
               lastUsed: new Date(),
               lastError: null
             });
@@ -160,7 +171,8 @@ class ScannerEngine {
             return data;
           }
         } catch (error) {
-          logger.error(`✗ Data source ${source.name} failed:`, error.message);
+          const clean = source.toJSON ? source.toJSON() : source;
+          logger.error(`❌ ${clean.name} failed: ${error.message}`);
           
           // Log error to data source
           await source.update({
@@ -185,7 +197,11 @@ class ScannerEngine {
    * Add rate limiting to respect API limits
    */
   async fetchDataFromSource(source, pair, timeframe) {
-    const { provider, baseUrl, apiKey, configuration } = source;
+    // Get clean data from Sequelize model
+    const cleanSource = source.toJSON ? source.toJSON() : source;
+    const { provider, baseUrl, apiKey, configuration } = cleanSource;
+
+    logger.debug(`Fetching from ${provider}: apiKey present = ${!!apiKey}`);
 
     // Rate limiting per provider
     if (provider === 'alphavantage') {
@@ -367,9 +383,17 @@ class ScannerEngine {
     };
     const interval = intervalMap[timeframe] || '1h';
     
-    // Validate API key
-    if (!apiKey || apiKey === 'demo' || apiKey.includes('REPLACE')) {
-      throw new Error(`TwelveData API key is not configured. Current: ${apiKey || 'EMPTY'}`);
+    // CRITICAL: Validate API key
+    if (!apiKey) {
+      const error = 'TwelveData API key is EMPTY or MISSING in database!';
+      logger.error(`  ❌ ${error}`);
+      throw new Error(error);
+    }
+    
+    if (apiKey === 'demo' || apiKey.includes('REPLACE') || apiKey.includes('YOUR_')) {
+      const error = `TwelveData API key is placeholder: "${apiKey}"`;
+      logger.error(`  ❌ ${error}`);
+      throw new Error(error);
     }
     
     // Determine symbol format based on asset type
@@ -392,25 +416,53 @@ class ScannerEngine {
       symbol = `${pair.substring(0, 3)}/${pair.substring(3)}`;
     }
 
-    logger.info(`  📡 Fetching TwelveData: ${symbol} ${interval} from ${baseUrl}`);
+    logger.info(`  📡 TwelveData Request:`);
+    logger.info(`      URL: ${baseUrl}/time_series`);
+    logger.info(`      Symbol: ${symbol}`);
+    logger.info(`      Interval: ${interval}`);
+    logger.info(`      API Key: ${apiKey.substring(0, 5)}...${apiKey.substring(apiKey.length - 5)}`);
 
     try {
+      const params = {
+        symbol: symbol,
+        interval: interval,
+        apikey: apiKey,  // MUST be lowercase!
+        outputsize: 200
+      };
+      
+      logger.debug(`  Request params:`, params);
+
       const response = await axios.get(`${baseUrl}/time_series`, {
-        params: {
-          symbol: symbol,
-          interval: interval,
-          apikey: apiKey,
-          outputsize: 200
-        },
+        params: params,
         timeout: 10000
       });
 
+      logger.debug(`  Response status: ${response.status}`);
+      logger.debug(`  Response data keys: ${Object.keys(response.data).join(', ')}`);
+
+      // Check for API errors FIRST before checking for values
       if (response.data.status === 'error') {
-        throw new Error(`API Error: ${response.data.message}`);
+        const apiError = response.data.message || 'Unknown API error';
+        logger.error(`  ❌ TwelveData API Error (${response.data.code}):`);
+        logger.error(`      ${apiError}`);
+        
+        // If it's an API key error, suggest what to do
+        if (response.data.code === 401 || apiError.includes('apikey')) {
+          logger.error(`\n  🔧 API KEY PROBLEM DETECTED:`);
+          logger.error(`      The API key in your database appears to be invalid or expired.`);
+          logger.error(`      \n      Solutions:`);
+          logger.error(`      1. Get a new API key from: https://twelvedata.com/pricing`);
+          logger.error(`      2. Go to Admin Panel → Market Data → Edit TwelveData`);
+          logger.error(`      3. Replace the API key and save`);
+          logger.error(`      4. Test Connection should now work`);
+        }
+        
+        throw new Error(`API Error (${response.data.code}): ${apiError}`);
       }
 
       if (!response.data.values || !Array.isArray(response.data.values)) {
         logger.warn(`  ⚠️  No values in response for ${symbol}`);
+        logger.debug(`  Response data:`, response.data);
         return null;
       }
 
@@ -431,7 +483,12 @@ class ScannerEngine {
       logger.info(`  ✅ Got ${candles.length} candles for ${symbol}`);
       return this.calculateIndicators(candles, pair, timeframe);
     } catch (error) {
-      logger.error(`  ❌ TwelveData error: ${error.message}`);
+      logger.error(`  ❌ TwelveData request failed:`);
+      logger.error(`      Error: ${error.message}`);
+      if (error.response) {
+        logger.error(`      Status: ${error.response.status}`);
+        logger.error(`      Data: ${JSON.stringify(error.response.data)}`);
+      }
       throw error;
     }
   }
