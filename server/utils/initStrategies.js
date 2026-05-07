@@ -3,12 +3,41 @@ const logger = require('./logger');
 
 exports.initializeDefaultStrategies = async () => {
   try {
+    logger.info('🔧 Initializing scanner strategies...');
+    
+    // Check if Freedom Strategy exists (main strategy)
+    const freedomStrategy = await ScannerConfig.findOne({
+      where: { strategyName: 'freedomStrategyNehemiah' }
+    });
+
+    if (!freedomStrategy) {
+      logger.info('✨ Creating Freedom Strategy Nehemiah 6:3...');
+      
+      // Freedom Strategy - The primary strategy (from Market Scanner page)
+      await ScannerConfig.create({
+        strategyName: 'freedomStrategyNehemiah',
+        description: 'Freedom Strategy Nehemiah 6:3 - Multi-indicator analysis combining RSI, MACD, and Moving Averages',
+        rules: {
+          rsiOverbought: 70,
+          rsiOversold: 30,
+          minHistogram: 0,
+          fastMA: 20,
+          slowMA: 50
+        },
+        timeframes: ['15m', '1h', '4h', '1d'],
+        pairs: ['XAUUSD', 'EURUSD', 'GBPUSD', 'GBPJPY', 'XAGUSD', 'US30USD'],
+        isEnabled: true,
+        scanInterval: 15
+      });
+      
+      logger.info('✅ Freedom Strategy Nehemiah 6:3 created');
+    }
+
     const existingConfigs = await ScannerConfig.count();
     
-    if (existingConfigs > 0) {
-      logger.info('Scanner configurations already exist');
-      return;
-    }
+    if (existingConfigs <= 1) {
+      // Only create other strategies if none exist
+      logger.info('Creating additional scanner strategies...');
 
     // Default RSI Strategy - Forex & Commodities
     await ScannerConfig.create({
@@ -148,8 +177,13 @@ exports.initializeDefaultStrategies = async () => {
       scanInterval: 60
     });
 
-    logger.info('Default scanner strategies initialized successfully - 10 strategies configured');
+      logger.info('✅ 9 additional scanner strategies initialized');
+    } else {
+      logger.info(`📊 Scanner already configured: ${existingConfigs} strategies`);
+    }
+
+    logger.info('✅ Scanner strategies initialization complete');
   } catch (error) {
-    logger.error('Error initializing default strategies:', error);
+    logger.error('❌ Error initializing scanner strategies:', error.message);
   }
 };

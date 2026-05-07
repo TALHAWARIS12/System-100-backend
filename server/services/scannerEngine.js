@@ -24,19 +24,47 @@ class ScannerEngine {
    */
   async runScanner() {
     try {
-      logger.info('Starting scanner run...');
+      logger.info('🚀 Starting scanner run...');
       
       const configs = await ScannerConfig.findAll({
         where: { isEnabled: true }
       });
 
-      for (const config of configs) {
-        await this.scanStrategy(config);
+      if (configs.length === 0) {
+        logger.warn('⚠️  No scanner configurations found. Creating default...');
+        // Create a default configuration
+        const defaultConfig = await ScannerConfig.create({
+          strategyName: 'freedomStrategyNehemiah',
+          description: 'Freedom Strategy Nehemiah 6:3 - Default configuration',
+          pairs: ['XAUUSD', 'EURUSD', 'GBPUSD'],
+          timeframes: ['1h', '4h'],
+          isEnabled: true,
+          scanInterval: 15,
+          rules: {
+            rsiOversold: 30,
+            rsiOverbought: 70,
+            confidence: 65
+          }
+        });
+        configs.push(defaultConfig);
+        logger.info('✨ Created default scanner configuration');
       }
 
-      logger.info('Scanner run completed');
+      logger.info(`📋 Found ${configs.length} enabled scanner configurations`);
+
+      for (const config of configs) {
+        try {
+          logger.info(`\n▶️  Scanning strategy: ${config.strategyName}`);
+          await this.scanStrategy(config);
+        } catch (error) {
+          logger.error(`❌ Strategy scan failed for ${config.strategyName}:`, error.message);
+        }
+      }
+
+      logger.info('\n✅ Scanner run completed successfully');
     } catch (error) {
-      logger.error('Scanner run error:', error);
+      logger.error('❌ Scanner run error:', error.message);
+      throw error;
     }
   }
 
@@ -339,6 +367,11 @@ class ScannerEngine {
     };
     const interval = intervalMap[timeframe] || '1h';
     
+    // Validate API key
+    if (!apiKey || apiKey === 'demo' || apiKey.includes('REPLACE')) {
+      throw new Error(`TwelveData API key is not configured. Current: ${apiKey || 'EMPTY'}`);
+    }
+    
     // Determine symbol format based on asset type
     const fromSymbol = pair.substring(0, 3);
     const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LTC', 'DOGE', 'MATIC'];
@@ -359,29 +392,48 @@ class ScannerEngine {
       symbol = `${pair.substring(0, 3)}/${pair.substring(3)}`;
     }
 
-    const response = await axios.get(`${baseUrl}/time_series`, {
-      params: {
-        symbol: symbol,
-        interval: interval,
-        apikey: apiKey,
-        outputsize: 200
-      },
-      timeout: 10000
-    });
+    logger.info(`  📡 Fetching TwelveData: ${symbol} ${interval} from ${baseUrl}`);
 
-    if (response.data.status === 'error') {
-      throw new Error(response.data.message);
+    try {
+      const response = await axios.get(`${baseUrl}/time_series`, {
+        params: {
+          symbol: symbol,
+          interval: interval,
+          apikey: apiKey,
+          outputsize: 200
+        },
+        timeout: 10000
+      });
+
+      if (response.data.status === 'error') {
+        throw new Error(`API Error: ${response.data.message}`);
+      }
+
+      if (!response.data.values || !Array.isArray(response.data.values)) {
+        logger.warn(`  ⚠️  No values in response for ${symbol}`);
+        return null;
+      }
+
+      if (response.data.values.length < 50) {
+        logger.warn(`  ⚠️  Insufficient data: ${response.data.values.length} candles (need 50+)`);
+        return null;
+      }
+
+      const candles = response.data.values.map(item => ({
+        timestamp: item.datetime,
+        open: parseFloat(item.open),
+        high: parseFloat(item.high),
+        low: parseFloat(item.low),
+        close: parseFloat(item.close),
+        volume: parseFloat(item.volume || 0)
+      }));
+
+      logger.info(`  ✅ Got ${candles.length} candles for ${symbol}`);
+      return this.calculateIndicators(candles, pair, timeframe);
+    } catch (error) {
+      logger.error(`  ❌ TwelveData error: ${error.message}`);
+      throw error;
     }
-
-    const candles = response.data.values.map(item => ({
-      timestamp: item.datetime,
-      open: parseFloat(item.open),
-      high: parseFloat(item.high),
-      low: parseFloat(item.low),
-      close: parseFloat(item.close)
-    }));
-
-    return this.calculateIndicators(candles, pair, timeframe);
   }
 
   /**
