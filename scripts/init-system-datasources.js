@@ -15,7 +15,7 @@ const SYSTEM_DATA_SOURCES = [
     name: 'TWELVE_DATA',
     provider: 'twelvedata',
     baseUrl: 'https://api.twelvedata.com',
-    apiKey: '442090d2ledd439e8600blf0dcfbab9a',
+    apiKey: '442090d21edd439e8600b1f0dcfbab9a',
     isActive: true,
     isSystem: true,
     priority: 1,

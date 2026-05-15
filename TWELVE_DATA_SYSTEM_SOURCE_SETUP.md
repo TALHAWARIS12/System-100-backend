@@ -20,7 +20,7 @@ Updated `deleteDataSource` controller to prevent deletion of system data sources
 ### 3. **System Data Source Initialization** - `server/utils/initDatabase.js`
 Created new `initializeSystemDataSources()` function that:
 - Creates/updates the TWELVE_DATA system data source on every server startup
-- API Key: `442090d2ledd439e8600blf0dcfbab9a`
+- API Key: `442090d21edd439e8600b1f0dcfbab9a`
 - Priority: 0 (highest priority for queries)
 - Rate Limit: 800 calls/day
 - Status: Always active
