@@ -129,6 +129,13 @@ exports.deleteDataSource = async (req, res, next) => {
       });
     }
 
+    if (source.isSystem) {
+      return res.status(403).json({
+        success: false,
+        message: 'System data sources cannot be deleted'
+      });
+    }
+
     await source.destroy();
 
     logger.info(`Data source deleted: ${source.name}`);

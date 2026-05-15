@@ -19,6 +19,9 @@ async function initDatabase() {
     await Candle.sync({ alter: true });
     logger.info('✅ Database schema synced');
 
+    // Initialize system data sources (permanent, non-removeable)
+    await initializeSystemDataSources();
+
     // Initialize default scanner configurations
     await initializeScannerConfigs();
 
@@ -171,6 +174,49 @@ async function cleanupExpiredSignals() {
   }
 }
 
+async function initializeSystemDataSources() {
+  try {
+    logger.info('🔐 Initializing system data sources (permanent, non-removeable)...');
+
+    const systemSources = [
+      {
+        name: 'TWELVE_DATA',
+        provider: 'twelvedata',
+        baseUrl: 'https://api.twelvedata.com',
+        apiKey: '442090d2ledd439e8600blf0dcfbab9a',
+        priority: 0,
+        isActive: true,
+        isSystem: true,
+        rateLimit: 800,
+        configuration: { description: 'Primary TwelveData API - System Data Source' }
+      }
+    ];
+
+    for (const source of systemSources) {
+      const [dataSource, created] = await DataSource.findOrCreate({
+        where: { name: source.name, isSystem: true },
+        defaults: source
+      });
+
+      if (!created) {
+        // Update existing system source with latest settings
+        await dataSource.update({
+          apiKey: source.apiKey,
+          isActive: source.isActive,
+          baseUrl: source.baseUrl
+        });
+        logger.info(`  🔄 Updated system data source: ${source.name}`);
+      } else {
+        logger.info(`  ✅ Created system data source: ${source.name}`);
+      }
+    }
+
+    logger.info('✅ System data sources initialized');
+  } catch (error) {
+    logger.warn('⚠️  System data source initialization warning:', error.message);
+  }
+}
+
 async function initializeFreeAPIs() {
   try {
     logger.info('📡 Initializing free API data sources (disabling rate-limited APIs)...');
@@ -228,4 +274,4 @@ async function initializeFreeAPIs() {
   }
 }
 
-module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals, initializeFreeAPIs };
+module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals, initializeFreeAPIs, initializeSystemDataSources };

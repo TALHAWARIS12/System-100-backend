@@ -51,12 +51,18 @@ const DataSource = sequelize.define('DataSource', {
   configuration: {
     type: DataTypes.JSONB,
     defaultValue: {}
+  },
+  isSystem: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'System data sources cannot be deleted by users'
   }
 }, {
   timestamps: true,
   indexes: [
     { fields: ['isActive', 'priority'] },
-    { fields: ['provider'] }
+    { fields: ['provider'] },
+    { fields: ['isSystem'] }
   ]
 });
 
