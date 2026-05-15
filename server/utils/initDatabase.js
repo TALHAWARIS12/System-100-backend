@@ -13,6 +13,7 @@ async function initDatabase() {
 
     // Sync all models with database (add missing columns)
     logger.info('📊 Syncing database schema...');
+    await DataSource.sync({ alter: true });
     await ScannerConfig.sync({ alter: true });
     await ScannerResult.sync({ alter: true });
     await Signal.sync({ alter: true });
