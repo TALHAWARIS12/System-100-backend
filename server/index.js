@@ -7,6 +7,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { sequelize } = require('./config/database');
+require('./models'); // Ensure all models and associations are registered on sequelize
 const logger = require('./utils/logger');
 const wsService = require('./services/websocketService');
 
@@ -202,18 +203,16 @@ const startServer = async () => {
       logger.warn('ENUM migration skipped:', enumErr.message);
     }
 
-    // Sync models (in production, use migrations)
-    if (process.env.NODE_ENV === 'development') {
-      try {
-        await sequelize.sync({ alter: true });
-        logger.info('Database models synchronized');
-      } catch (syncErr) {
-        // Constraint/column-already-exists errors are non-fatal during alter sync
-        logger.warn('Database sync warning (non-fatal):', syncErr.message);
-        // Fall back to basic sync (create missing tables only)
-        await sequelize.sync();
-        logger.info('Database models synchronized (basic)');
-      }
+    // Sync models (always sync in both dev and production to ensure tables are created)
+    try {
+      await sequelize.sync({ alter: true });
+      logger.info('Database models synchronized');
+    } catch (syncErr) {
+      // Constraint/column-already-exists errors are non-fatal during alter sync
+      logger.warn('Database sync warning (non-fatal):', syncErr.message);
+      // Fall back to basic sync (create missing tables only)
+      await sequelize.sync();
+      logger.info('Database models synchronized (basic)');
     }
     
     // Initialize master admin
