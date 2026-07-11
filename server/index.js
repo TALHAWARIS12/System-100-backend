@@ -249,6 +249,7 @@ const startServer = async () => {
     });
   } catch (error) {
     logger.error('Unable to start server:', error);
+    console.error('❌ FATAL STARTUP ERROR:', error);
     
     // Provide helpful error messages
     if (error.name === 'SequelizeConnectionError') {
