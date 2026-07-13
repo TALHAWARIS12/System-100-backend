@@ -1,8 +1,18 @@
 const Stripe = require('stripe');
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const { User } = require('../models');
 const logger = require('../utils/logger');
 const { processReferralCommission } = require('./referralController');
+
+// Helper to determine if we are running in mock payment mode
+const getIsMockMode = () => {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key || key.startsWith('sk_test_your') || key.includes('fake') || process.env.MOCK_PAYMENT === 'true') {
+    return true;
+  }
+  return false;
+};
+
 
 // Gold Circle Plans — all prices in USD
 const PLANS = {
@@ -59,6 +69,18 @@ exports.createCheckoutSession = async (req, res, next) => {
 
     if (!plan) {
       return res.status(400).json({ success: false, message: 'Invalid plan selected' });
+    }
+
+    // Handle Mock Payment Mode
+    if (getIsMockMode()) {
+      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+      const mockSessionId = `mock_checkout_session_${planId}_${Date.now()}`;
+      logger.info(`Mock checkout session created: ${mockSessionId} for user ${user.id}`);
+      return res.status(200).json({
+        success: true,
+        sessionId: mockSessionId,
+        url: `${frontendUrl}/subscription/success?session_id=${mockSessionId}`
+      });
     }
 
     // Validate required Stripe configuration
@@ -156,6 +178,24 @@ exports.createPortalSession = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.user.id);
 
+    // Handle Mock Payment Mode - reset subscription for easy testing
+    if (getIsMockMode()) {
+      logger.info(`Mock mode active. Resetting subscription status for user ${user.id} to allow re-testing.`);
+      await user.update({
+        subscriptionStatus: 'none',
+        subscriptionTier: 'none',
+        subscriptionEndDate: null,
+        stripeCustomerId: null,
+        subscriptionId: null
+      });
+
+      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+      return res.status(200).json({
+        success: true,
+        url: `${frontendUrl}/subscription?mock_cancelled=true`
+      });
+    }
+
     if (!user.stripeCustomerId) {
       return res.status(400).json({
         success: false,
@@ -215,6 +255,43 @@ exports.verifySession = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Session ID required'
+      });
+    }
+
+    // Handle Mock Payment Mode Verification
+    if (getIsMockMode() && sessionId.startsWith('mock_checkout_session_')) {
+      const planId = sessionId.replace('mock_checkout_session_', '').replace(/_\d+$/, '');
+      const plan = PLANS[planId] || PLANS['gold-circle'];
+      const subscriptionEndDate = new Date();
+      subscriptionEndDate.setDate(subscriptionEndDate.getDate() + 30); // 30 days from now
+      const tier = plan.tier || 'gold';
+
+      logger.info(`Verifying mock session ${sessionId}. Activating ${planId} subscription for user ${user.id}`);
+
+      if (user.subscriptionStatus !== 'active') {
+        await user.update({
+          stripeCustomerId: 'mock_customer_id',
+          subscriptionId: 'mock_subscription_id',
+          subscriptionStatus: 'active',
+          subscriptionTier: tier,
+          subscriptionEndDate: subscriptionEndDate
+        });
+
+        // Process referral commission based on plan monthly price
+        try {
+          await processReferralCommission(user.id, plan.monthlyPrice);
+        } catch (refErr) {
+          logger.warn('Referral commission processing error:', refErr.message);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        subscription: {
+          status: 'active',
+          sessionId: sessionId,
+          endDate: subscriptionEndDate
+        }
       });
     }
 
