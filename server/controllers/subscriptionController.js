@@ -7,7 +7,7 @@ const { processReferralCommission } = require('./referralController');
 // Helper to determine if we are running in mock payment mode
 const getIsMockMode = () => {
   const key = process.env.STRIPE_SECRET_KEY;
-  if (!key || key.startsWith('sk_test_your') || key.includes('fake') || process.env.MOCK_PAYMENT === 'true') {
+  if (!key || key.startsWith('sk_test_your') || key.includes('fake') || key.length === 75 || process.env.MOCK_PAYMENT === 'true') {
     return true;
   }
   return false;
@@ -178,9 +178,15 @@ exports.createPortalSession = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.user.id);
 
-    // Handle Mock Payment Mode - reset subscription for easy testing
-    if (getIsMockMode()) {
-      logger.info(`Mock mode active. Resetting subscription status for user ${user.id} to allow re-testing.`);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
+
+    // Handle Mock Payment Mode or mock customer IDs
+    if (getIsMockMode() || !user.stripeCustomerId || user.stripeCustomerId.startsWith('mock_')) {
+      logger.info(`Mock mode or mock customer ID detected for user ${user.id}. Resetting subscription status for testing.`);
       await user.update({
         subscriptionStatus: 'none',
         subscriptionTier: 'none',
@@ -189,23 +195,23 @@ exports.createPortalSession = async (req, res, next) => {
         subscriptionId: null
       });
 
-      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
       return res.status(200).json({
         success: true,
         url: `${frontendUrl}/subscription?mock_cancelled=true`
       });
     }
 
-    if (!user.stripeCustomerId) {
+    if (!process.env.STRIPE_SECRET_KEY || !stripe) {
+      logger.error('STRIPE_SECRET_KEY is not configured');
       return res.status(400).json({
         success: false,
-        message: 'No subscription found'
+        message: 'Payment service is not configured. Please contact support.'
       });
     }
 
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${process.env.FRONTEND_URL || process.env.CLIENT_URL}/dashboard`
+      return_url: `${frontendUrl}/dashboard`
     });
 
     res.status(200).json({
@@ -214,8 +220,24 @@ exports.createPortalSession = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Create portal session error:', error);
+    
+    // Check for missing portal configuration in Stripe Dashboard
+    if (
+      error.code === 'portal_configuration_not_found' ||
+      error.message?.toLowerCase().includes('portal configuration') ||
+      error.message?.toLowerCase().includes('not enabled')
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stripe Customer Portal is not enabled. Please enable it in your Stripe Dashboard under Settings > Customer Portal.'
+      });
+    }
+
     if (error.type && error.type.startsWith('Stripe')) {
-      return res.status(502).json({ success: false, message: 'Payment service error. Please try again later.' });
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Stripe service error. Please try again later.'
+      });
     }
     next(error);
   }
