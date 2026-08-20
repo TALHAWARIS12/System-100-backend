@@ -73,7 +73,7 @@ exports.createCheckoutSession = async (req, res, next) => {
 
     // Handle Mock Payment Mode
     if (getIsMockMode()) {
-      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
       const mockSessionId = `mock_checkout_session_${planId}_${Date.now()}`;
       logger.info(`Mock checkout session created: ${mockSessionId} for user ${user.id}`);
       return res.status(200).json({
@@ -94,11 +94,7 @@ exports.createCheckoutSession = async (req, res, next) => {
       return res.status(500).json({ success: false, message: `Payment plan ${planId} not configured. Please contact support.` });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL;
-    if (!frontendUrl) {
-      logger.error('FRONTEND_URL and CLIENT_URL are not configured');
-      return res.status(500).json({ success: false, message: 'Frontend URL not configured. Please contact support.' });
-    }
+    const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
 
     // Create or retrieve Stripe customer
     let customerId = user.stripeCustomerId;
@@ -160,12 +156,23 @@ exports.createCheckoutSession = async (req, res, next) => {
       stripeError: error.raw || error
     });
     
-    // Don't forward Stripe's status codes — return a clear message
     if (error.type === 'StripeAuthenticationError') {
-      return res.status(500).json({ success: false, message: 'Payment service configuration error. Please contact support.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Stripe Secret Key. Please check your STRIPE_SECRET_KEY in Render environment settings.'
+      });
+    }
+    if (error.type === 'StripeInvalidRequestError') {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Invalid Stripe price ID or request settings.'
+      });
     }
     if (error.type && error.type.startsWith('Stripe')) {
-      return res.status(502).json({ success: false, message: error.message || 'Payment service error' });
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Payment service error. Please try again later.'
+      });
     }
     next(error);
   }
