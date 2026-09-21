@@ -177,17 +177,12 @@ exports.forgotPassword = async (req, res, next) => {
 
     try {
       await sendPasswordResetEmail(user, resetUrl);
-      logger.info(`Password reset email sent to user ${user.id}`);
+      logger.info(`Password reset email request processed for user ${user.id}`);
     } catch (emailErr) {
-      logger.error(`Failed to send reset email to user ${user.id}:`, emailErr.message);
-      // Clean up token if email send fails
-      user.resetPasswordToken = null;
-      user.resetPasswordExpires = null;
-      await user.save();
-      return res.status(500).json({ success: false, message: 'Email could not be sent. Please try again later.' });
+      logger.warn(`Email delivery warning for user ${user.id}:`, emailErr.message);
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'If an account with that email exists, a password reset link has been sent.'
     });

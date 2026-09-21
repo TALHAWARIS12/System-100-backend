@@ -56,6 +56,24 @@ exports.handleStripeWebhook = async (req, res) => {
   }
 };
 
+const mapStripeStatus = (status) => {
+  if (!status) return 'inactive';
+  const s = status.toLowerCase();
+  if (s === 'active' || s === 'trialing') return 'active';
+  if (s === 'past_due' || s === 'unpaid') return 'past_due';
+  if (s === 'canceled' || s === 'cancelled' || s === 'incomplete_expired') return 'cancelled';
+  if (s === 'incomplete') return 'inactive';
+  return 'inactive';
+};
+
+const parseEndDate = (timestamp) => {
+  if (timestamp && typeof timestamp === 'number' && !isNaN(timestamp)) {
+    const d = new Date(timestamp * 1000);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+};
+
 async function handleCheckoutCompleted(session) {
   const userId = session.metadata.userId;
   const tier = session.metadata.tier || 'gold';
@@ -64,9 +82,8 @@ async function handleCheckoutCompleted(session) {
 
   const user = await User.findByPk(userId);
   if (user) {
-    // Get subscription to get the end date
     const subscription = await stripe.subscriptions.retrieve(session.subscription);
-    const endDate = new Date(subscription.current_period_end * 1000);
+    const endDate = parseEndDate(subscription?.current_period_end);
 
     await user.update({
       stripeCustomerId: customerId,
@@ -85,10 +102,10 @@ async function handleSubscriptionUpdate(subscription) {
   });
 
   if (user) {
-    const endDate = new Date(subscription.current_period_end * 1000);
+    const endDate = parseEndDate(subscription?.current_period_end);
     await user.update({
       subscriptionId: subscription.id,
-      subscriptionStatus: subscription.status,
+      subscriptionStatus: mapStripeStatus(subscription.status),
       subscriptionEndDate: endDate
     });
     logger.info(`Subscription updated for user ${user.id}: ${subscription.status}`);
@@ -116,7 +133,7 @@ async function handlePaymentSucceeded(invoice) {
 
   if (user && invoice.subscription) {
     const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-    const endDate = new Date(subscription.current_period_end * 1000);
+    const endDate = parseEndDate(subscription?.current_period_end);
     
     await user.update({
       subscriptionStatus: 'active',

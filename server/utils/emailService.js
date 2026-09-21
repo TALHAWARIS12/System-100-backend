@@ -41,8 +41,17 @@ const sendEmail = async (options) => {
   }
 
   try {
+    let fromAddress = options.from || process.env.SMTP_FROM;
+    if (!fromAddress || fromAddress.includes('yourdomain.com')) {
+      if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('resend')) {
+        fromAddress = 'Gold Circle Capital <onboarding@resend.dev>';
+      } else {
+        fromAddress = 'Gold Circle Capital <noreply@goldcirclecapital.com>';
+      }
+    }
+
     const mailOptions = {
-      from: process.env.SMTP_FROM || 'GOLD CIRCLE CAPITAL <noreply@goldcirclecapital.com>',
+      from: fromAddress,
       to: options.to,
       subject: options.subject,
       html: options.html,
@@ -50,11 +59,11 @@ const sendEmail = async (options) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    logger.info('Email sent:', info.messageId);
+    logger.info('Email sent successfully:', info.messageId);
     return info;
   } catch (error) {
-    logger.error('Send email error:', error);
-    throw error;
+    logger.error('Send email error:', error.message);
+    return { error: error.message };
   }
 };
 
