@@ -10,7 +10,9 @@ const {
   register,
   login,
   getMe,
-  updatePassword
+  updatePassword,
+  forgotPassword,
+  resetPassword
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 
@@ -19,6 +21,24 @@ router.post('/register', registerValidation, register);
 router.post('/login', loginValidation, login);
 
 router.get('/me', protect, getMe);
+
+router.post(
+  '/forgot-password',
+  [
+    body('email').isEmail().withMessage('Please provide a valid email'),
+    validate
+  ],
+  forgotPassword
+);
+
+router.post(
+  '/reset-password/:token',
+  [
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+    validate
+  ],
+  resetPassword
+);
 
 router.put(
   '/password',

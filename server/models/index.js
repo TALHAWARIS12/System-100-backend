@@ -13,12 +13,19 @@ const MarketData = require('./MarketData');
 const Candle = require('./Candle');
 const Signal = require('./Signal');
 const EconomicEvent = require('./EconomicEvent');
+const AuditLog = require('./AuditLog');
 
 // ─── Phase 1 Relationships (unchanged) ───
 Trade.belongsTo(User, { as: 'educator', foreignKey: 'educatorId' });
 User.hasMany(Trade, { as: 'trades', foreignKey: 'educatorId' });
 
-// ─── Phase 2 Relationships ───
+// ─── Phase 2 & 3 Relationships ───
+
+// Audit Logs
+AuditLog.belongsTo(User, { as: 'performer', foreignKey: 'performedBy' });
+AuditLog.belongsTo(User, { as: 'target', foreignKey: 'targetUserId' });
+User.hasMany(AuditLog, { as: 'auditLogsPerformed', foreignKey: 'performedBy' });
+User.hasMany(AuditLog, { as: 'auditLogsReceived', foreignKey: 'targetUserId' });
 
 // Chat
 ChatRoom.hasMany(ChatMessage, { as: 'messages', foreignKey: 'roomId' });
@@ -62,5 +69,6 @@ module.exports = {
   MarketData,
   Candle,
   Signal,
-  EconomicEvent
+  EconomicEvent,
+  AuditLog
 };

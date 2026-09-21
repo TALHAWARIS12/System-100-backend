@@ -35,12 +35,42 @@ const Trade = sequelize.define('Trade', {
     type: DataTypes.DECIMAL(12, 5),
     allowNull: false
   },
+  takeProfit1: {
+    type: DataTypes.DECIMAL(12, 5),
+    allowNull: true
+  },
+  takeProfit2: {
+    type: DataTypes.DECIMAL(12, 5),
+    allowNull: true
+  },
+  takeProfit3: {
+    type: DataTypes.DECIMAL(12, 5),
+    allowNull: true
+  },
+  timeframe: {
+    type: DataTypes.ENUM('15m', '1h', '4h'),
+    defaultValue: '1h',
+    allowNull: false
+  },
+  category: {
+    type: DataTypes.ENUM('forex', 'crypto', 'indices', 'commodities'),
+    defaultValue: 'forex',
+    allowNull: false
+  },
+  rrRatio: {
+    type: DataTypes.DECIMAL(6, 2),
+    allowNull: true
+  },
+  pipMovement: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
   notes: {
     type: DataTypes.TEXT,
     allowNull: true
   },
   status: {
-    type: DataTypes.ENUM('active', 'closed', 'cancelled'),
+    type: DataTypes.ENUM('active', 'closed', 'cancelled', 'tp1_hit', 'tp2_hit', 'tp3_hit', 'stopped_out', 'expired'),
     defaultValue: 'active'
   },
   isVisible: {

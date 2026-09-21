@@ -195,8 +195,59 @@ const sendWelcomeEmail = async (user) => {
   });
 };
 
+/**
+ * Send branded password reset email
+ */
+const sendPasswordResetEmail = async (user, resetUrl) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; background-color: #0d1117; color: #c9d1d9; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #161b22; border-radius: 8px; padding: 30px; border: 1px solid #30363d; }
+        .header { color: #d29922; font-size: 24px; font-weight: bold; margin-bottom: 20px; text-align: center; }
+        .button { display: inline-block; background: #d29922; color: #0d1117; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 20px 0; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #30363d; color: #8b949e; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">🔐 Password Reset & Account Recovery</div>
+        <p>Hi ${user.firstName || 'Member'},</p>
+        <p>A password reset request was initiated for your Gold Circle Capital account.</p>
+        <p>Click the secure button below to set a new password. This link is valid for <strong>30 minutes</strong> and can only be used once:</p>
+        
+        <div style="text-align: center;">
+          <a href="${resetUrl}" class="button">Reset My Password</a>
+        </div>
+        
+        <p style="font-size: 12px; color: #8b949e; word-break: break-all;">
+          If the button above does not work, copy and paste this link into your browser:<br>
+          <a href="${resetUrl}" style="color: #58a6ff;">${resetUrl}</a>
+        </p>
+        
+        <div class="footer">
+          <p>If you did not request a password reset, please ignore this email or contact support immediately.</p>
+          <p>GOLD CIRCLE CAPITAL — Premium Trading Intelligence</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  await sendEmail({
+    to: user.email,
+    subject: '🔐 Gold Circle Capital — Password Reset Request',
+    html,
+    text: `Password reset request for Gold Circle Capital. Reset link: ${resetUrl}`
+  });
+};
+
 module.exports = {
   sendEmail,
   sendSignalNotification,
-  sendWelcomeEmail
+  sendWelcomeEmail,
+  sendPasswordResetEmail
 };
+

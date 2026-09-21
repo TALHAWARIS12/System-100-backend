@@ -12,12 +12,12 @@ const {
   getMyTrades,
   getTradeStats
 } = require('../controllers/tradeController');
-const { protect, authorize, requireActiveSubscription } = require('../middleware/auth');
+const { protect, authorize, requireActiveSubscription, requireApprovedMember } = require('../middleware/auth');
 
-// Public routes (require auth + subscription)
-router.get('/', protect, requireActiveSubscription, getTrades);
-router.get('/stats', protect, requireActiveSubscription, getTradeStats);
-router.get('/:id', protect, requireActiveSubscription, getTrade);
+// Public routes (require auth + member authorization + subscription)
+router.get('/', protect, requireApprovedMember, requireActiveSubscription, getTrades);
+router.get('/stats', protect, requireApprovedMember, requireActiveSubscription, getTradeStats);
+router.get('/:id', protect, requireApprovedMember, requireActiveSubscription, getTrade);
 
 // Educator routes
 router.get('/educator/mine', protect, authorize('educator', 'admin'), getMyTrades);

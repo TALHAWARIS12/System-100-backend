@@ -106,4 +106,86 @@ const requireTier = (...allowedTiers) => {
   };
 };
 
-module.exports = { protect, authorize, requireActiveSubscription, requireTier };
+/**
+ * Require approved member status ("List Authorization")
+ */
+const requireApprovedMember = (req, res, next) => {
+  // Admin and educator bypass member status check
+  if (req.user.role === 'admin' || req.user.role === 'educator') {
+    return next();
+  }
+
+  const status = req.user.memberStatus || 'pending';
+
+  if (status === 'approved' || status === 'active') {
+    return next();
+  }
+
+  if (status === 'pending') {
+    return res.status(403).json({
+      success: false,
+      code: 'MEMBER_PENDING_APPROVAL',
+      message: 'Account is pending list access authorization'
+    });
+  }
+
+  if (status === 'suspended') {
+    return res.status(403).json({
+      success: false,
+      code: 'MEMBER_SUSPENDED',
+      message: 'Your member access has been suspended'
+    });
+  }
+
+  if (status === 'revoked') {
+    return res.status(403).json({
+      success: false,
+      code: 'MEMBER_REVOKED',
+      message: 'Your member access has been revoked'
+    });
+  }
+
+  return res.status(403).json({
+    success: false,
+    code: 'UNAUTHORIZED_MEMBER_STATUS',
+    message: 'Unauthorized member access status'
+  });
+};
+
+/**
+ * Require Unlimited subscription tier
+ */
+const requireUnlimitedTier = (req, res, next) => {
+  if (req.user.role === 'admin' || req.user.role === 'educator') {
+    return next();
+  }
+
+  if (!req.user.hasActiveSubscription()) {
+    return res.status(403).json({
+      success: false,
+      code: 'SUBSCRIPTION_REQUIRED',
+      message: 'Active Unlimited subscription required'
+    });
+  }
+
+  const tier = (req.user.subscriptionTier || '').toLowerCase();
+  if (tier === 'platinum' || tier === 'unlimited' || tier === 'gold') {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    code: 'UNLIMITED_TIER_REQUIRED',
+    message: 'This feature requires Unlimited tier access'
+  });
+};
+
+module.exports = {
+  protect,
+  authorize,
+  requireActiveSubscription,
+  requireTier,
+  requireApprovedMember,
+  requireUnlimitedTier
+};
+

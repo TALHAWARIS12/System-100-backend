@@ -235,11 +235,11 @@ const startServer = async () => {
     const { initializeDefaultChatRooms } = require('./utils/initChatRooms');
     await initializeDefaultChatRooms();
 
-    // Phase 2: Start gold scanner cron
-    const { startGoldScannerCron } = require('./services/goldScannerCron');
-    startGoldScannerCron();
+    // Phase 2 & 3: Start staggered background scanner jobs
+    const backgroundScannerJob = require('./services/backgroundScannerJob');
+    backgroundScannerJob.startSchedules();
 
-    // Start cron jobs
+    // Start legacy cron jobs
     require('./services/scannerCron');
     
     server.listen(PORT, () => {

@@ -2,11 +2,13 @@
  * Phase 2: Enhanced Admin Controller
  * Extended admin capabilities for platform management
  */
-const { User, Trade, ScannerResult, TradeJournal, Referral, Notification, Announcement, ChatRoom, ChatMessage } = require('../models');
+const { User, Trade, ScannerResult, TradeJournal, Referral, Notification, Announcement, ChatRoom, ChatMessage, AuditLog } = require('../models');
 const { Op, fn, col, literal } = require('sequelize');
+const crypto = require('crypto');
 const { sequelize } = require('../config/database');
 const logger = require('../utils/logger');
 const wsService = require('../services/websocketService');
+const { sendPasswordResetEmail } = require('../utils/emailService');
 
 // @desc    Get comprehensive admin analytics
 // @route   GET /api/admin/analytics
@@ -294,3 +296,136 @@ exports.getUserActivity = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Update Member Authorization Status ("List Authorization")
+// @route   PUT /api/admin/users/:userId/member-status
+// @access  Private/Admin
+exports.updateMemberStatus = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { memberStatus, reason } = req.body;
+
+    const validStatuses = ['pending', 'approved', 'active', 'suspended', 'revoked'];
+    if (!validStatuses.includes(memberStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid memberStatus. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    const targetUser = await User.findByPk(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (targetUser.role === 'admin' && req.user.id !== targetUser.id) {
+      return res.status(403).json({ success: false, message: 'Cannot modify member status of another admin' });
+    }
+
+    const previousStatus = targetUser.memberStatus;
+    await targetUser.update({ memberStatus });
+
+    // Record administrative action in AuditLog
+    await AuditLog.create({
+      action: 'MEMBER_STATUS_CHANGE',
+      performedBy: req.user.id,
+      targetUserId: targetUser.id,
+      details: {
+        previousStatus,
+        newStatus: memberStatus,
+        targetEmail: targetUser.email,
+        reason: reason || 'Admin panel update'
+      },
+      ipAddress: req.ip
+    });
+
+    logger.info(`Admin ${req.user.email} updated member status of ${targetUser.email} from ${previousStatus} to ${memberStatus}`);
+
+    res.json({
+      success: true,
+      message: `Member status updated to ${memberStatus}`,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        memberStatus: targetUser.memberStatus
+      }
+    });
+  } catch (error) {
+    logger.error('Update member status error:', error);
+    next(error);
+  }
+};
+
+// @desc    Admin Concierge Password Reset Trigger
+// @route   POST /api/admin/users/:userId/reset-password
+// @access  Private/Admin
+exports.adminResetPassword = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const targetUser = await User.findByPk(userId);
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Generate unhashed reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    // Set token & 30 minute expiration on user record
+    targetUser.resetPasswordToken = hashedToken;
+    targetUser.resetPasswordExpires = new Date(Date.now() + 30 * 60 * 1000);
+    await targetUser.save();
+
+    // Construct reset URL
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
+
+    // Send branded email to member
+    await sendPasswordResetEmail(targetUser, resetUrl);
+
+    // Record administrative action in AuditLog (never log passwords or tokens!)
+    await AuditLog.create({
+      action: 'CONCIERGE_PASSWORD_RESET',
+      performedBy: req.user.id,
+      targetUserId: targetUser.id,
+      details: {
+        targetEmail: targetUser.email,
+        triggeredAt: new Date()
+      },
+      ipAddress: req.ip
+    });
+
+    logger.info(`Admin concierge password reset triggered by ${req.user.email} for member ${targetUser.email}`);
+
+    res.json({
+      success: true,
+      message: `Concierge password reset initiated. Recovery email sent to ${targetUser.email}.`
+    });
+  } catch (error) {
+    logger.error('Admin reset password error:', error);
+    next(error);
+  }
+};
+
+// @desc    Get Administrative Audit Logs
+// @route   GET /api/admin/audit-logs
+// @access  Private/Admin
+exports.getAuditLogs = async (req, res, next) => {
+  try {
+    const logs = await AuditLog.findAll({
+      include: [
+        { model: User, as: 'performer', attributes: ['id', 'email', 'firstName', 'lastName'] },
+        { model: User, as: 'target', attributes: ['id', 'email', 'firstName', 'lastName'] }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: 100
+    });
+
+    res.json({ success: true, auditLogs: logs });
+  } catch (error) {
+    logger.error('Get audit logs error:', error);
+    next(error);
+  }
+};
+

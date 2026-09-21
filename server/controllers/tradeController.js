@@ -7,11 +7,13 @@ const { Op } = require('sequelize');
 // @access  Private (subscription required)
 exports.getTrades = async (req, res, next) => {
   try {
-    const { status, asset, limit = 50 } = req.query;
+    const { status, asset, category, timeframe, limit = 50 } = req.query;
 
     const where = { isVisible: true };
     if (status) where.status = status;
     if (asset) where.asset = asset;
+    if (category) where.category = category;
+    if (timeframe) where.timeframe = timeframe;
 
     const trades = await Trade.findAll({
       where,
@@ -66,7 +68,7 @@ exports.getTrade = async (req, res, next) => {
   }
 };
 
-// @desc    Create trade
+// @desc    Create trade (supports multi-TP setup)
 // @route   POST /api/trades
 // @access  Private (educator/admin)
 exports.createTrade = async (req, res, next) => {
@@ -77,9 +79,28 @@ exports.createTrade = async (req, res, next) => {
       entry,
       stopLoss,
       takeProfit,
+      takeProfit1,
+      takeProfit2,
+      takeProfit3,
+      timeframe = '1h',
+      category = 'forex',
+      rrRatio,
+      pipMovement,
       notes,
       isVisible
     } = req.body;
+
+    const mainTP = takeProfit || takeProfit1 || entry;
+
+    // Calculate R:R ratio if not supplied
+    let calculatedRR = rrRatio;
+    if (!calculatedRR && entry && stopLoss && mainTP) {
+      const risk = Math.abs(parseFloat(entry) - parseFloat(stopLoss));
+      const reward = Math.abs(parseFloat(mainTP) - parseFloat(entry));
+      if (risk > 0) {
+        calculatedRR = parseFloat((reward / risk).toFixed(2));
+      }
+    }
 
     const trade = await Trade.create({
       educatorId: req.user.id,
@@ -87,7 +108,14 @@ exports.createTrade = async (req, res, next) => {
       direction,
       entry,
       stopLoss,
-      takeProfit,
+      takeProfit: mainTP,
+      takeProfit1: takeProfit1 || mainTP,
+      takeProfit2: takeProfit2 || null,
+      takeProfit3: takeProfit3 || null,
+      timeframe,
+      category,
+      rrRatio: calculatedRR || null,
+      pipMovement: pipMovement || null,
       notes,
       isVisible: isVisible !== undefined ? isVisible : true,
       status: 'active'

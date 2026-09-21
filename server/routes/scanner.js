@@ -10,16 +10,16 @@ const {
   getStats,
   cleanupDuplicates
 } = require('../controllers/scannerController');
-const { protect, authorize, requireActiveSubscription } = require('../middleware/auth');
+const { protect, authorize, requireActiveSubscription, requireApprovedMember } = require('../middleware/auth');
 const {
   scannerConfigValidation,
   validateId,
   paginationValidation
 } = require('../middleware/validation');
 
-// Public routes (require auth + subscription)
-router.get('/results', protect, requireActiveSubscription, paginationValidation, getResults);
-router.get('/stats', protect, requireActiveSubscription, getStats);
+// Public routes (require auth + member authorization + subscription)
+router.get('/results', protect, requireApprovedMember, requireActiveSubscription, paginationValidation, getResults);
+router.get('/stats', protect, requireApprovedMember, requireActiveSubscription, getStats);
 
 // Admin/Educator routes
 router.get('/configs', protect, authorize('admin', 'educator'), getConfigs);
