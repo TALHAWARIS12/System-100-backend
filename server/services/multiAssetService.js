@@ -140,47 +140,45 @@ class MultiAssetService {
    */
   evaluateTechnicalSetup(asset, category, timeframe, indicators) {
     const { currentPrice, ma20, ma50, rsi, bollingerBands, atr } = indicators;
-    const currentRSI = rsi.current;
-    const ma20Val = ma20.current;
-    const ma50Val = ma50.current;
-    const bbUpper = bollingerBands.upper[bollingerBands.upper.length - 1];
-    const bbLower = bollingerBands.lower[bollingerBands.lower.length - 1];
-    const atrVal = atr.current || (currentPrice * 0.005);
+    const currentRSI = rsi?.current ?? 50;
+    const ma20Val = ma20?.current ?? currentPrice;
+    const ma50Val = ma50?.current ?? currentPrice;
+    const atrVal = atr?.current || (currentPrice * 0.004);
 
     let direction = null;
-    let confidence = 0;
-    let pattern = 'Confluence Breakout';
+    let confidence = 75;
+    let pattern = 'Moving Average Confluence';
 
-    // Bullish Confluence
-    if (ma20Val > ma50Val && currentRSI > 45 && currentRSI < 68 && currentPrice > ma20Val) {
+    // Bullish Confluence or Trend
+    if (currentPrice >= ma20Val || ma20Val >= ma50Val || currentRSI >= 50) {
       direction = 'buy';
-      confidence = 75;
-
-      if (currentRSI > 50 && currentRSI < 60) confidence += 10;
-      if (currentPrice > bbUpper * 0.998) {
-        confidence += 8;
-        pattern = 'Bollinger Upper Breakout';
+      if (currentRSI >= 55) {
+        confidence += 10;
+        pattern = 'RSI Momentum Breakout';
       }
-    }
-    // Bearish Confluence
-    else if (ma20Val < ma50Val && currentRSI < 55 && currentRSI > 32 && currentPrice < ma20Val) {
+      if (currentPrice > ma20Val) {
+        confidence += 8;
+        pattern = 'MA20 Trend Continuation';
+      }
+    } 
+    // Bearish Confluence or Trend
+    else {
       direction = 'sell';
-      confidence = 75;
-
-      if (currentRSI < 50 && currentRSI > 40) confidence += 10;
-      if (currentPrice < bbLower * 1.002) {
+      if (currentRSI <= 45) {
+        confidence += 10;
+        pattern = 'RSI Oversold Breakdown';
+      }
+      if (currentPrice < ma20Val) {
         confidence += 8;
-        pattern = 'Bollinger Lower Breakout';
+        pattern = 'MA20 Breakdown';
       }
     }
 
-    if (!direction) return null;
-
-    // Calculate Multi-TP targets
-    const slDist = atrVal * 1.8;
-    const tp1Dist = atrVal * 2.5;
-    const tp2Dist = atrVal * 4.5;
-    const tp3Dist = atrVal * 7.0;
+    // Calculate Multi-TP targets based on ATR
+    const slDist = atrVal * 1.5;
+    const tp1Dist = atrVal * 2.2;
+    const tp2Dist = atrVal * 4.0;
+    const tp3Dist = atrVal * 6.5;
 
     const stopLoss = direction === 'buy' ? currentPrice - slDist : currentPrice + slDist;
     const takeProfit1 = direction === 'buy' ? currentPrice + tp1Dist : currentPrice - tp1Dist;
@@ -196,7 +194,7 @@ class MultiAssetService {
       takeProfit1: parseFloat(takeProfit1.toFixed(decimals)),
       takeProfit2: parseFloat(takeProfit2.toFixed(decimals)),
       takeProfit3: parseFloat(takeProfit3.toFixed(decimals)),
-      confidence: Math.min(confidence, 98),
+      confidence: Math.min(confidence, 96),
       pattern,
       indicators: { rsi: currentRSI, ma20: ma20Val, ma50: ma50Val, atr: atrVal }
     };
