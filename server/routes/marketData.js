@@ -142,7 +142,7 @@ router.get('/analysis', protect, async (req, res) => {
 router.get('/latest', protect, async (req, res) => {
   try {
     const cryptoMarketService = require('../services/cryptoMarketService');
-    const cryptoPrices = await cryptoMarketService.fetchLatestPrices();
+    const cryptoPrices = await cryptoMarketService.fetchAllCryptoPrices();
     res.json({
       success: true,
       prices: cryptoPrices || {}

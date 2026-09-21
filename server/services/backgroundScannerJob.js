@@ -29,6 +29,17 @@ class BackgroundScannerJob {
   startSchedules() {
     logger.info('⏰ BackgroundScannerJob: Initializing staggered background scan schedules...');
 
+    // Run immediate initial scan pass on startup so prices and trades are ready immediately
+    setTimeout(async () => {
+      try {
+        logger.info('🚀 BackgroundScannerJob: Running initial startup scan pass...');
+        await cryptoMarketService.fetchAllCryptoPrices();
+        await multiAssetService.scanAllAssets();
+      } catch (err) {
+        logger.warn('Startup scan pass warning:', err.message);
+      }
+    }, 2000);
+
     // 1. Market Data Fetcher — Runs every 5 minutes (offset at :00, :05, :10...)
     const marketTask = cron.schedule('*/5 * * * *', async () => {
       if (this.isMarketDataFetching) return;
