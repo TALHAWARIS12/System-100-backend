@@ -87,7 +87,10 @@ const requireTier = (...allowedTiers) => {
       });
     }
 
-    const userTier = req.user.subscriptionTier || 'bronze';
+    let userTier = (req.user.subscriptionTier || '').toLowerCase();
+    if (!userTier || userTier === 'none') {
+      userTier = 'gold'; // Active subscribers default to gold tier access
+    }
 
     // If single tier provided, treat as minimum tier (user must be at or above)
     if (allowedTiers.length === 1) {
@@ -112,6 +115,11 @@ const requireTier = (...allowedTiers) => {
 const requireApprovedMember = (req, res, next) => {
   // Admin and educator bypass member status check
   if (req.user.role === 'admin' || req.user.role === 'educator') {
+    return next();
+  }
+
+  // Active subscription holders pass member approval check
+  if (req.user.hasActiveSubscription()) {
     return next();
   }
 
@@ -168,7 +176,11 @@ const requireUnlimitedTier = (req, res, next) => {
     });
   }
 
-  const tier = (req.user.subscriptionTier || '').toLowerCase();
+  let tier = (req.user.subscriptionTier || '').toLowerCase();
+  if (!tier || tier === 'none') {
+    tier = 'gold'; // Active members default to gold/unlimited access
+  }
+
   if (tier === 'platinum' || tier === 'unlimited' || tier === 'gold') {
     return next();
   }

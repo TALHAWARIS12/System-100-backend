@@ -134,4 +134,23 @@ router.get('/analysis', protect, async (req, res) => {
   }
 });
 
+/**
+ * @route GET /api/market-data/latest
+ * @desc Get latest prices for tickers (BTC, ETH, SOL, XRP, etc.)
+ * @access Private
+ */
+router.get('/latest', protect, async (req, res) => {
+  try {
+    const cryptoMarketService = require('../services/cryptoMarketService');
+    const cryptoPrices = await cryptoMarketService.fetchLatestPrices();
+    res.json({
+      success: true,
+      prices: cryptoPrices || {}
+    });
+  } catch (error) {
+    logger.error('Latest market data fetch error:', error);
+    res.json({ success: true, prices: {} });
+  }
+});
+
 module.exports = router;

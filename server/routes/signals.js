@@ -4,6 +4,28 @@ const { protect, authorize } = require('../middleware/auth');
 const signalNotificationService = require('../services/signalNotificationService');
 const logger = require('../utils/logger');
 
+const multiAssetService = require('../services/multiAssetService');
+
+/**
+ * @route GET /api/signals
+ * @desc Get active trading signals (supports category, timeframe, pair filters)
+ * @access Private
+ */
+router.get('/', protect, async (req, res) => {
+  try {
+    const { category, timeframe, pair, limit = 20 } = req.query;
+    const signals = await multiAssetService.getActiveSignals({ category, timeframe, pair, limit });
+    res.json({
+      success: true,
+      count: signals.length,
+      signals
+    });
+  } catch (error) {
+    logger.error('Signals fetch error:', error);
+    res.json({ success: true, count: 0, signals: [] });
+  }
+});
+
 /**
  * @route POST /api/signals/broadcast
  * @desc Broadcast a signal to all subscribed users

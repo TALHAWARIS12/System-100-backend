@@ -218,6 +218,32 @@ class MultiAssetService {
 
     return !!existing;
   }
+
+  /**
+   * Get active signals with optional filters
+   */
+  async getActiveSignals({ category, timeframe, pair, limit = 20 } = {}) {
+    const { Op } = require('sequelize');
+    const where = {};
+
+    if (timeframe && timeframe !== 'all') {
+      where.timeframe = timeframe;
+    }
+    if (pair) {
+      where.asset = pair;
+    }
+    if (category && category !== 'all' && this.categories[category]) {
+      where.asset = { [Op.in]: this.categories[category] };
+    }
+
+    const signals = await Signal.findAll({
+      where,
+      order: [['publishedAt', 'DESC']],
+      limit: parseInt(limit, 10)
+    });
+
+    return signals;
+  }
 }
 
 module.exports = new MultiAssetService();
