@@ -19,11 +19,18 @@ const wsService = require('./websocketService');
 class MultiAssetService {
   constructor() {
     this.categories = {
-      forex: ['EURUSD', 'GBPUSD', 'GBPJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF'],
-      crypto: ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'],
-      indices: ['US30', 'NAS100']
+      forex: [
+        'EURUSD', 'GBPUSD', 'USDJPY', 'GBPJPY', 'AUDUSD', 
+        'USDCAD', 'NZDUSD', 'USDCHF', 'EURGBP', 'EURJPY', 
+        'GBPAUD', 'EURAUD', 'CADJPY', 'AUDJPY'
+      ],
+      crypto: [
+        'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 
+        'DOGEUSD', 'ADAUSD', 'BNBUSD', 'LTCUSD'
+      ],
+      indices: ['US30', 'NAS100', 'XAUUSD', 'XAGUSD']
     };
-    this.timeframes = ['15m', '1h', '4h'];
+    this.timeframes = ['15m', '1h', '4h', '1d'];
     this.confidenceThreshold = 75; // Mandatory 75%+ confidence filter
     this.dedupWindowMinutes = 30;   // 30-minute deduplication window
   }
@@ -111,8 +118,27 @@ class MultiAssetService {
       status: 'active',
       source: 'scanner',
       publishedAt: new Date(),
-      expiresAt: new Date(Date.now() + 4 * 3600000)
+      expiresAt: new Date(Date.now() + 24 * 3600000)
     });
+
+    // Mirror to ScannerResult so Market Scanner page also receives it
+    const { ScannerResult } = require('../models');
+    await ScannerResult.create({
+      pair: asset,
+      timeframe,
+      signalType: signalData.direction,
+      entry: signalData.entry,
+      stopLoss: signalData.stopLoss,
+      takeProfit: signalData.takeProfit1,
+      takeProfit2: signalData.takeProfit2,
+      takeProfit3: signalData.takeProfit3,
+      pattern: signalData.pattern,
+      confidence: signalData.confidence,
+      strategyName: 'MULTI_ASSET_HUB',
+      indicators: signalData.indicators,
+      isActive: true,
+      expiresAt: new Date(Date.now() + 24 * 3600000)
+    }).catch(err => logger.debug('ScannerResult mirror warning:', err.message));
 
     // Broadcast via WebSocket
     wsService.broadcastSignal({
@@ -218,20 +244,41 @@ class MultiAssetService {
   }
 
   /**
+   * Helper to detect asset category
+   */
+  getAssetCategory(asset) {
+    const sym = (asset || '').toUpperCase();
+    if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].some(c => sym.includes(c))) {
+      return 'crypto';
+    }
+    if (['US30', 'NAS100', 'SPX', 'DJI', 'XAU', 'XAG'].some(i => sym.includes(i))) {
+      return 'indices';
+    }
+    return 'forex';
+  }
+
+  /**
    * Get active signals with optional filters
    */
-  async getActiveSignals({ category, timeframe, pair, limit = 20 } = {}) {
+  async getActiveSignals({ category, timeframe, pair, limit = 50 } = {}) {
     const { Op } = require('sequelize');
     const where = {};
 
     if (timeframe && timeframe !== 'all') {
-      where.timeframe = timeframe;
+      const tfNorm = (timeframe === 'daily' || timeframe === '1day') ? '1d' : (timeframe === '15min' ? '15m' : (timeframe === '60min' ? '1h' : (timeframe === '240min' ? '4h' : timeframe)));
+      where.timeframe = { [Op.in]: [tfNorm, timeframe] };
     }
     if (pair) {
       where.asset = pair;
     }
-    if (category && category !== 'all' && this.categories[category]) {
-      where.asset = { [Op.in]: this.categories[category] };
+    if (category && category !== 'all') {
+      if (this.categories[category]) {
+        where.asset = { [Op.in]: this.categories[category] };
+      } else if (category === 'crypto') {
+        where.asset = { [Op.in]: this.categories.crypto };
+      } else if (category === 'forex') {
+        where.asset = { [Op.in]: this.categories.forex };
+      }
     }
 
     const signals = await Signal.findAll({
@@ -240,7 +287,11 @@ class MultiAssetService {
       limit: parseInt(limit, 10)
     });
 
-    return signals;
+    return signals.map(s => {
+      const item = s.toJSON ? s.toJSON() : { ...s };
+      item.category = this.getAssetCategory(item.asset);
+      return item;
+    });
   }
 }
 

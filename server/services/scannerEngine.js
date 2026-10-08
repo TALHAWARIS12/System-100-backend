@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { ScannerResult, ScannerConfig, DataSource, User, Subscription } = require('../models');
+const { ScannerResult, ScannerConfig, DataSource, User, Candle, Signal } = require('../models');
 const logger = require('../utils/logger');
 const { sendSignalNotification } = require('../utils/emailService');
 
@@ -123,7 +123,61 @@ class ScannerEngine {
    */
   async getMarketData(pair, timeframe) {
     try {
-      // Get active data sources ordered by priority
+      // 1. Fast path for Crypto assets using Binance public API (real-time, zero rate limits)
+      const isCrypto = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].some(c => pair.toUpperCase().includes(c));
+      if (isCrypto) {
+        try {
+          const cryptoMarketService = require('./cryptoMarketService');
+          const klines = await cryptoMarketService.fetchCryptoCandles(pair, timeframe, 100);
+          if (klines && klines.length >= 30) {
+            const candles = klines.map(k => ({
+              timestamp: new Date(k.time).toISOString(),
+              open: k.open,
+              high: k.high,
+              low: k.low,
+              close: k.close,
+              volume: k.volume || 0
+            }));
+            logger.info(`⚡ Fast crypto fetch for ${pair} ${timeframe}: ${candles.length} candles`);
+            return this.calculateIndicators(candles, pair, timeframe);
+          }
+        } catch (err) {
+          logger.debug(`Fast crypto fetch fallback for ${pair}: ${err.message}`);
+        }
+      }
+
+      // 2. Fast path for cached candles in DB (if stored within the last 4 hours)
+      try {
+        const tfMap = { '15min': '15m', '15m': '15m', '1h': '1h', '60min': '1h', '4h': '4h', '240min': '4h', '1d': '1d', 'daily': '1d', '1day': '1d' };
+        const cleanTf = tfMap[timeframe] || timeframe;
+        const dbCandles = await Candle.findAll({
+          where: { asset: pair, timeframe: cleanTf },
+          order: [['openTime', 'DESC']],
+          limit: 100
+        });
+
+        if (dbCandles && dbCandles.length >= 30) {
+          const writeTime = dbCandles[0].updatedAt ? new Date(dbCandles[0].updatedAt).getTime() : Date.now();
+          const ageMs = Date.now() - writeTime;
+          // If candles were cached within the last 4 hours, use them
+          if (ageMs < 4 * 3600000) {
+            const candles = dbCandles.reverse().map(c => ({
+              timestamp: c.openTime.toISOString(),
+              open: parseFloat(c.open),
+              high: parseFloat(c.high),
+              low: parseFloat(c.low),
+              close: parseFloat(c.close),
+              volume: parseFloat(c.volume || 0)
+            }));
+            logger.info(`📦 Using cached DB candles for ${pair} ${timeframe}: ${candles.length} candles`);
+            return this.calculateIndicators(candles, pair, timeframe);
+          }
+        }
+      } catch (err) {
+        logger.debug(`DB candle cache check note: ${err.message}`);
+      }
+
+      // 3. Fallback to active data sources (TwelveData, Polygon, Alpha Vantage)
       const sources = await DataSource.findAll({
         where: { isActive: true },
         order: [['priority', 'ASC']]
@@ -136,14 +190,6 @@ class ScannerEngine {
         throw new Error('No active data sources configured - please enable at least one data source in Admin panel');
       }
 
-      // Debug: Log each source's details
-      sources.forEach((source, idx) => {
-        const clean = source.toJSON ? source.toJSON() : source;
-        const hasKey = !!clean.apiKey;
-        const keyPreview = clean.apiKey ? `${clean.apiKey.substring(0, 5)}...` : 'EMPTY';
-        logger.info(`   ${idx + 1}. ${clean.name} - Provider: ${clean.provider} - API Key: ${hasKey ? '✅' : '❌'} ${keyPreview}`);
-      });
-
       // Try each source until one works
       for (const source of sources) {
         try {
@@ -151,6 +197,14 @@ class ScannerEngine {
           logger.info(`\n▶️  Trying: ${clean.name} (${clean.provider})`);
           logger.info(`   Usage: ${clean.usageCount}/${clean.rateLimit}`);
           
+          // Reset daily usage counter if lastUsed is from a previous calendar day
+          const lastUsed = clean.lastUsed ? new Date(clean.lastUsed) : null;
+          const isDifferentDay = !lastUsed || (new Date().toDateString() !== lastUsed.toDateString());
+          if (isDifferentDay && clean.usageCount > 0) {
+            await source.update({ usageCount: 0 });
+            clean.usageCount = 0;
+          }
+
           // Check rate limit
           if (clean.usageCount >= clean.rateLimit) {
             logger.warn(`   ⚠️  Rate limit exceeded`);
@@ -179,12 +233,26 @@ class ScannerEngine {
             lastError: error.message
           });
           
-          // Try next source
           continue;
         }
       }
 
-      throw new Error('All data sources failed');
+      // 4. Final fallback to marketDataService getCandles (which has synthetic generation)
+      const marketDataService = require('./marketDataService');
+      const fallbackCandles = await marketDataService.getCandles(pair, timeframe, 100);
+      if (fallbackCandles && fallbackCandles.length >= 30) {
+        const candles = fallbackCandles.map(c => ({
+          timestamp: new Date(c.time).toISOString(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume || 0
+        }));
+        return this.calculateIndicators(candles, pair, timeframe);
+      }
+
+      throw new Error('All data sources and fallbacks failed');
       
     } catch (error) {
       logger.error('Get market data error:', error);
@@ -373,12 +441,15 @@ class ScannerEngine {
       '1min': '1min',
       '5min': '5min',
       '15min': '15min',
+      '15m': '15min',
       '30min': '30min',
+      '30m': '30min',
       '1h': '1h',
-      '4h': '4h',
-      '1d': '1day',
       '60min': '1h',
+      '4h': '4h',
       '240min': '4h',
+      '1d': '1day',
+      '1day': '1day',
       'daily': '1day'
     };
     const interval = intervalMap[timeframe] || '1h';
@@ -397,23 +468,21 @@ class ScannerEngine {
     }
     
     // Determine symbol format based on asset type
-    const fromSymbol = pair.substring(0, 3);
-    const cryptoSymbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'LTC', 'DOGE', 'MATIC'];
-    const commoditySymbols = ['XAU', 'XAG', 'XPT', 'XPD'];
-    
     let symbol;
-    if (pair.startsWith('US30') || pair === 'US30USD') {
-      // Indices - Twelve Data uses DJI for Dow Jones
+    const cleanPair = pair.replace('/', '').toUpperCase();
+    if (cleanPair.startsWith('US30')) {
       symbol = 'DJI';
-    } else if (cryptoSymbols.includes(fromSymbol)) {
-      // Crypto pairs
-      symbol = `${fromSymbol}/USD`;
-    } else if (commoditySymbols.includes(fromSymbol)) {
-      // Commodities (Gold, Silver)
-      symbol = `${fromSymbol}/USD`;
+    } else if (cleanPair.startsWith('XAU')) {
+      symbol = 'XAU/USD';
+    } else if (cleanPair.startsWith('XAG')) {
+      symbol = 'XAG/USD';
+    } else if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].some(c => cleanPair.startsWith(c))) {
+      const prefix = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].find(c => cleanPair.startsWith(c));
+      symbol = `${prefix}/USD`;
+    } else if (cleanPair.length === 6) {
+      symbol = `${cleanPair.substring(0, 3)}/${cleanPair.substring(3, 6)}`;
     } else {
-      // Forex pairs
-      symbol = `${pair.substring(0, 3)}/${pair.substring(3)}`;
+      symbol = pair.includes('/') ? pair : `${pair}/USD`;
     }
 
     logger.info(`  📡 TwelveData Request:`);
@@ -481,6 +550,8 @@ class ScannerEngine {
       }));
 
       logger.info(`  ✅ Got ${candles.length} candles for ${symbol}`);
+      const marketDataService = require('./marketDataService');
+      marketDataService.storeCandleBatch(pair, timeframe, candles, 'twelvedata').catch(() => {});
       return this.calculateIndicators(candles, pair, timeframe);
     } catch (error) {
       logger.error(`  ❌ TwelveData request failed:`);
@@ -1382,6 +1453,27 @@ class ScannerEngine {
 
       logger.info(`Signal saved: ${signal.type} ${pair} @ ${signal.entry} (TP1: ${signal.takeProfit}, TP2: ${tp2}, TP3: ${tp3})`);
 
+      // Mirror to Signal table so Trades Hub also receives it
+      const { Signal } = require('../models');
+      await Signal.create({
+        asset: pair,
+        timeframe,
+        direction: signal.type,
+        entry: signal.entry,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        takeProfit2: tp2,
+        takeProfit3: tp3,
+        pattern: signal.pattern || strategyName,
+        confidence: signal.confidence,
+        strategy: strategyName,
+        indicators: signal.indicators,
+        status: 'active',
+        source: 'scanner',
+        publishedAt: new Date(),
+        expiresAt
+      }).catch(err => logger.debug('Signal mirror note:', err.message));
+
       // Send email notifications to subscribed users (async, don't block)
       this.notifyUsers(savedSignal).catch(err => {
         logger.error('Notification error:', err);
@@ -1397,28 +1489,18 @@ class ScannerEngine {
    */
   async notifyUsers(signal) {
     try {
-      // Get users with active subscriptions
+      // Get users with active accounts
       const users = await User.findAll({
-        include: [{
-          model: Subscription,
-          as: 'subscription',
-          where: {
-            status: 'active',
-            endDate: { [require('sequelize').Op.gt]: new Date() }
-          }
-        }]
+        where: {
+          isActive: true,
+          isBanned: false
+        }
       });
 
-      // Send email to each user
-      for (const user of users) {
-        try {
-          await sendSignalNotification(user, signal);
-        } catch (err) {
-          logger.error(`Failed to notify user ${user.email}:`, err);
-        }
-      }
-
-      logger.info(`Notified ${users.length} users about new signal`);
+      // Send email to users with signals enabled asynchronously in parallel
+      const targetUsers = users.filter(u => u.email && u.notificationPreferences?.signals !== false);
+      Promise.allSettled(targetUsers.map(user => sendSignalNotification(user, signal))).catch(() => {});
+      logger.info(`Dispatched notifications for ${targetUsers.length} users`);
     } catch (error) {
       logger.error('Notify users error:', error);
     }

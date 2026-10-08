@@ -11,9 +11,12 @@ exports.getTrades = async (req, res, next) => {
 
     const where = { isVisible: true };
     if (status) where.status = status;
-    if (asset) where.asset = asset;
-    if (category) where.category = category;
-    if (timeframe) where.timeframe = timeframe;
+    if (asset) where.asset = { [Op.iLike]: `%${asset.trim()}%` };
+    if (category && category !== 'all') where.category = category;
+    if (timeframe && timeframe !== 'all') {
+      const tfNorm = (timeframe === 'daily' || timeframe === '1day') ? '1d' : (timeframe === '15min' ? '15m' : (timeframe === '60min' ? '1h' : (timeframe === '240min' ? '4h' : timeframe)));
+      where.timeframe = { [Op.in]: [tfNorm, timeframe] };
+    }
 
     const trades = await Trade.findAll({
       where,
@@ -102,9 +105,20 @@ exports.createTrade = async (req, res, next) => {
       }
     }
 
+    let detectedCategory = category;
+    const cryptoTickers = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'];
+    if (cryptoTickers.some(c => asset.toUpperCase().includes(c))) {
+      detectedCategory = 'crypto';
+    } else if (['US30', 'NAS100', 'SPX', 'DJI'].some(i => asset.toUpperCase().includes(i))) {
+      detectedCategory = 'indices';
+    } else if (['XAU', 'XAG', 'GOLD', 'SILVER'].some(m => asset.toUpperCase().includes(m))) {
+      detectedCategory = 'commodities';
+    }
+    const tfNorm = (timeframe === 'daily' || timeframe === '1day') ? '1d' : (timeframe === '15min' ? '15m' : timeframe);
+
     const trade = await Trade.create({
       educatorId: req.user.id,
-      asset,
+      asset: asset.toUpperCase().trim(),
       direction,
       entry,
       stopLoss,
@@ -112,8 +126,8 @@ exports.createTrade = async (req, res, next) => {
       takeProfit1: takeProfit1 || mainTP,
       takeProfit2: takeProfit2 || null,
       takeProfit3: takeProfit3 || null,
-      timeframe,
-      category,
+      timeframe: tfNorm || '1h',
+      category: detectedCategory || 'forex',
       rrRatio: calculatedRR || null,
       pipMovement: pipMovement || null,
       notes,

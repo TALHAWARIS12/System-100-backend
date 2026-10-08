@@ -48,7 +48,7 @@ const Trade = sequelize.define('Trade', {
     allowNull: true
   },
   timeframe: {
-    type: DataTypes.ENUM('15m', '1h', '4h'),
+    type: DataTypes.ENUM('15m', '1h', '4h', '1d', 'daily'),
     defaultValue: '1h',
     allowNull: false
   },

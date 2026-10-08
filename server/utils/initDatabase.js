@@ -177,40 +177,59 @@ async function cleanupExpiredSignals() {
 
 async function initializeSystemDataSources() {
   try {
-    logger.info('🔐 Initializing system data sources (permanent, non-removeable)...');
+    logger.info('🔐 Initializing system data sources...');
 
-    const systemSources = [
-      {
-        name: 'TWELVE_DATA',
+    const apiKey = process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '442090d21edd439e8600b1f0dcfbab9a';
+    const { Op } = require('sequelize');
+
+    // Remove any corrupted or duplicate data sources
+    await DataSource.destroy({
+      where: {
+        [Op.or]: [
+          { name: ['NEW', 'Tweleee', 'TwelveData Free'] },
+          { apiKey: { [Op.like]: '%ledd%' } }
+        ]
+      }
+    }).catch(() => {});
+
+    const [dataSource, created] = await DataSource.findOrCreate({
+      where: { provider: 'twelvedata' },
+      defaults: {
+        name: 'TwelveData',
         provider: 'twelvedata',
         baseUrl: 'https://api.twelvedata.com',
-        apiKey: '442090d21edd439e8600b1f0dcfbab9a',
-        priority: 0,
+        apiKey: apiKey,
+        priority: 1,
         isActive: true,
         isSystem: true,
         rateLimit: 800,
-        configuration: { description: 'Primary TwelveData API - System Data Source' }
+        usageCount: 0,
+        lastError: null,
+        configuration: { description: 'Primary TwelveData API - System Data Source', requestsPerDay: 800 }
       }
-    ];
+    });
 
-    for (const source of systemSources) {
-      const [dataSource, created] = await DataSource.findOrCreate({
-        where: { name: source.name, isSystem: true },
-        defaults: source
+    if (!created) {
+      await dataSource.update({
+        name: 'TwelveData',
+        baseUrl: 'https://api.twelvedata.com',
+        apiKey: apiKey,
+        priority: 1,
+        isActive: true,
+        lastError: null
       });
-
-      if (!created) {
-        // Update existing system source with latest settings
-        await dataSource.update({
-          apiKey: source.apiKey,
-          isActive: source.isActive,
-          baseUrl: source.baseUrl
-        });
-        logger.info(`  🔄 Updated system data source: ${source.name}`);
-      } else {
-        logger.info(`  ✅ Created system data source: ${source.name}`);
-      }
+      logger.info(`  🔄 Updated TwelveData data source`);
+    } else {
+      logger.info(`  ✅ Created TwelveData data source`);
     }
+
+    // Clean up any remaining duplicates
+    await DataSource.destroy({
+      where: {
+        provider: 'twelvedata',
+        id: { [Op.ne]: dataSource.id }
+      }
+    }).catch(() => {});
 
     logger.info('✅ System data sources initialized');
   } catch (error) {
@@ -220,26 +239,16 @@ async function initializeSystemDataSources() {
 
 async function initializeFreeAPIs() {
   try {
-    logger.info('📡 Initializing free API data sources (disabling rate-limited APIs)...');
+    logger.info('📡 Initializing secondary API data sources...');
 
     const sources = [
-      {
-        name: 'TwelveData Free',
-        provider: 'twelvedata',
-        baseUrl: 'https://api.twelvedata.com',
-        apiKey: process.env.TWELVE_DATA_API_KEY || 'demo',
-        priority: 1,
-        isActive: !!process.env.TWELVE_DATA_API_KEY,
-        rateLimit: 800,
-        configuration: { requestsPerDay: 800 }
-      },
       {
         name: 'Polygon.io Free',
         provider: 'polygon',
         baseUrl: 'https://api.polygon.io',
         apiKey: process.env.POLYGON_API_KEY || 'PG_KEY',
         priority: 2,
-        isActive: !!process.env.POLYGON_API_KEY,
+        isActive: !!process.env.POLYGON_API_KEY && process.env.POLYGON_API_KEY !== 'PG_KEY',
         rateLimit: 5,
         configuration: { requestsPerMinute: 5 }
       },
@@ -262,14 +271,13 @@ async function initializeFreeAPIs() {
       });
 
       if (!created) {
-        // Update existing source to reflect current settings
         await dataSource.update(source);
       }
 
       logger.info(`  ${source.isActive ? '✅' : '⛔'} ${source.name} - Priority: ${source.priority}`);
     }
 
-    logger.info('✅ API data sources initialized');
+    logger.info('✅ Secondary API data sources initialized');
   } catch (error) {
     logger.warn('⚠️  API data source initialization warning:', error.message);
   }

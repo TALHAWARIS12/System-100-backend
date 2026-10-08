@@ -199,6 +199,21 @@ const startServer = async () => {
           sequelize.connectionManager.releaseConnection(pg);
         }
       }
+
+      const [tradesTfEnum] = await sequelize.query(
+        `SELECT 1 FROM pg_type WHERE typname = 'enum_Trades_timeframe'`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      if (tradesTfEnum) {
+        const pg = await sequelize.connectionManager.getConnection({ type: 'write' });
+        try {
+          await pg.query(`ALTER TYPE "enum_Trades_timeframe" ADD VALUE IF NOT EXISTS '1d'`);
+          await pg.query(`ALTER TYPE "enum_Trades_timeframe" ADD VALUE IF NOT EXISTS 'daily'`);
+          logger.info('ENUM migration: added 1d/daily to Trades timeframe');
+        } finally {
+          sequelize.connectionManager.releaseConnection(pg);
+        }
+      }
     } catch (enumErr) {
       logger.warn('ENUM migration skipped:', enumErr.message);
     }

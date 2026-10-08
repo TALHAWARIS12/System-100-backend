@@ -22,6 +22,7 @@ if (isEmailConfigured) {
   transporter.verify((error, success) => {
     if (error) {
       logger.warn('Email configuration invalid (emails disabled):', error.message);
+      transporter = null;
     } else {
       logger.info('Email server ready to send messages');
     }
@@ -41,6 +42,13 @@ const sendEmail = async (options) => {
   }
 
   try {
+    let toAddress = options.to;
+    // On Resend sandbox tier (onboarding@resend.dev), only account owner is allowed
+    if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('resend') && toAddress !== 'ahmad123445888@gmail.com') {
+      logger.debug(`Skipping test email to unverified ${toAddress} on Resend sandbox domain`);
+      return { skipped: true };
+    }
+
     let fromAddress = options.from || process.env.SMTP_FROM;
     if (!fromAddress || fromAddress.includes('yourdomain.com')) {
       if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('resend')) {

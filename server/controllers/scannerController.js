@@ -11,22 +11,62 @@ exports.getResults = async (req, res, next) => {
     const { pair, timeframe, limit = 50 } = req.query;
 
     const where = { isActive: true };
-    if (pair) where.pair = pair;
-    if (timeframe) where.timeframe = timeframe;
+    if (pair) {
+      where.pair = { [Op.iLike]: `%${pair.trim()}%` };
+    }
+    if (timeframe && timeframe !== 'all') {
+      const tfNorm = (timeframe === 'daily' || timeframe === '1day') ? '1d' : (timeframe === '15min' ? '15m' : (timeframe === '60min' ? '1h' : (timeframe === '240min' ? '4h' : timeframe)));
+      where.timeframe = { [Op.in]: [tfNorm, timeframe] };
+    }
 
-    // First, clean up expired signals
+    // Clean up expired signals (keep signals with null expiresAt or future expiresAt)
     await ScannerResult.destroy({
       where: {
-        expiresAt: { [require('sequelize').Op.lt]: new Date() }
+        expiresAt: { [Op.lt]: new Date() }
       }
     });
 
     // Fetch signals with normal limit
-    const results = await ScannerResult.findAll({
+    let results = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
       limit: parseInt(limit)
     });
+
+    // If scanner results are few, supplement from active Signal table
+    if (results.length === 0) {
+      const signalWhere = { status: 'active' };
+      if (pair) signalWhere.asset = { [Op.iLike]: `%${pair.trim()}%` };
+      if (timeframe && timeframe !== 'all') {
+        const tfNorm = (timeframe === 'daily' || timeframe === '1day') ? '1d' : (timeframe === '15min' ? '15m' : (timeframe === '60min' ? '1h' : (timeframe === '240min' ? '4h' : timeframe)));
+        signalWhere.timeframe = { [Op.in]: [tfNorm, timeframe] };
+      }
+
+      const activeSignals = await Signal.findAll({
+        where: signalWhere,
+        order: [['publishedAt', 'DESC']],
+        limit: parseInt(limit)
+      });
+
+      if (activeSignals.length > 0) {
+        results = activeSignals.map(s => ({
+          id: s.id,
+          pair: s.asset,
+          timeframe: s.timeframe,
+          signalType: s.direction,
+          entry: s.entry,
+          stopLoss: s.stopLoss,
+          takeProfit: s.takeProfit,
+          takeProfit2: s.takeProfit2,
+          takeProfit3: s.takeProfit3,
+          pattern: s.pattern,
+          confidence: s.confidence,
+          strategyName: s.strategy || 'Freedom Strategy',
+          isActive: true,
+          createdAt: s.publishedAt || s.createdAt
+        }));
+      }
+    }
 
     // Smart deduplication: prevent exact duplicates within 30 minutes, allow multiple signals per pair
     const deduped = new Map();
@@ -34,21 +74,11 @@ exports.getResults = async (req, res, next) => {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
     
     for (const result of resultsArray) {
-      // Key: pair + signalType + entry price (rounded to 2 decimals) to prevent exact duplicates
       const entryRounded = Math.round(parseFloat(result.entry) * 100) / 100;
-      const key = `${result.pair}-${result.signalType}-${entryRounded}`;
+      const key = `${result.pair}-${result.signalType}-${result.timeframe}-${entryRounded}`;
       
       if (!deduped.has(key)) {
-        // Only skip if we have an identical signal from the last 30 minutes
-        const existingSignals = resultsArray.filter(r => {
-          const rEntryRounded = Math.round(parseFloat(r.entry) * 100) / 100;
-          const rKey = `${r.pair}-${r.signalType}-${rEntryRounded}`;
-          return rKey === key && r.createdAt > thirtyMinutesAgo;
-        });
-        
-        if (existingSignals.length <= 1) {
-          deduped.set(key, result);
-        }
+        deduped.set(key, result);
       }
     }
 

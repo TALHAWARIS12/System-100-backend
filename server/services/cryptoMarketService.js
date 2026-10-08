@@ -20,7 +20,11 @@ class CryptoMarketService {
       { symbol: 'BTCUSD', binancePair: 'BTCUSDT', name: 'Bitcoin' },
       { symbol: 'ETHUSD', binancePair: 'ETHUSDT', name: 'Ethereum' },
       { symbol: 'SOLUSD', binancePair: 'SOLUSDT', name: 'Solana' },
-      { symbol: 'XRPUSD', binancePair: 'XRPUSDT', name: 'XRP' }
+      { symbol: 'XRPUSD', binancePair: 'XRPUSDT', name: 'XRP' },
+      { symbol: 'DOGEUSD', binancePair: 'DOGEUSDT', name: 'Dogecoin' },
+      { symbol: 'ADAUSD', binancePair: 'ADAUSDT', name: 'Cardano' },
+      { symbol: 'BNBUSD', binancePair: 'BNBUSDT', name: 'Binance Coin' },
+      { symbol: 'LTCUSD', binancePair: 'LTCUSDT', name: 'Litecoin' }
     ];
     this.priceCache = new Map();
     this.isRunning = false;
@@ -183,16 +187,23 @@ class CryptoMarketService {
   }
 
   /**
-   * Fetch historical candles for crypto assets (15m, 1h, 4h)
+   * Fetch historical candles for crypto assets (15m, 1h, 4h, 1d)
    */
   async fetchCryptoCandles(symbol, timeframe = '1h', limit = 100) {
     const assetObj = this.assets.find(a => a.symbol === symbol);
-    const binancePair = assetObj ? assetObj.binancePair : `${symbol}T`;
+    const cleanSym = symbol.replace('USD', '').toUpperCase();
+    const binancePair = assetObj ? assetObj.binancePair : `${cleanSym}USDT`;
 
     const tfMap = {
       '15m': '15m',
+      '15min': '15m',
       '1h': '1h',
-      '4h': '4h'
+      '60min': '1h',
+      '4h': '4h',
+      '240min': '4h',
+      '1d': '1d',
+      '1day': '1d',
+      'daily': '1d'
     };
     const interval = tfMap[timeframe] || '1h';
 
@@ -206,8 +217,8 @@ class CryptoMarketService {
         timeout: 8000
       });
 
-      if (res.data && Array.isArray(res.data)) {
-        return res.data.map(k => ({
+      if (res.data && Array.isArray(res.data) && res.data.length >= 30) {
+        const candles = res.data.map(k => ({
           time: k[0],
           open: parseFloat(k[1]),
           high: parseFloat(k[2]),
@@ -215,12 +226,19 @@ class CryptoMarketService {
           close: parseFloat(k[4]),
           volume: parseFloat(k[5])
         }));
+
+        // Cache candles to DB asynchronously
+        const marketDataService = require('./marketDataService');
+        marketDataService.storeCandleBatch(symbol, timeframe, candles, 'binance').catch(() => {});
+        return candles;
       }
     } catch (err) {
       logger.warn(`Crypto klines fetch error for ${symbol} ${timeframe}: ${err.message}`);
     }
 
-    return [];
+    // Fallback: check Candle DB or marketDataService
+    const marketDataService = require('./marketDataService');
+    return await marketDataService.getCandles(symbol, timeframe, limit);
   }
 
   /**
