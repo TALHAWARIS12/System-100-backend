@@ -175,20 +175,27 @@ exports.forgotPassword = async (req, res, next) => {
     const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
     const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
+    let emailDelivered = true;
     try {
       const emailResult = await sendPasswordResetEmail(user, resetUrl);
       if (emailResult?.error) {
+        emailDelivered = false;
         logger.warn(`Password reset email delivery warning for user ${user.id} (${user.email}): ${emailResult.error}`);
       } else {
         logger.info(`Password reset email request processed successfully for user ${user.id} (${user.email})`);
       }
     } catch (emailErr) {
+      emailDelivered = false;
       logger.warn(`Email delivery exception for user ${user.id}: ${emailErr.message}`);
     }
 
     return res.status(200).json({
       success: true,
-      message: 'If an account with that email exists, a password reset link has been sent.'
+      message: emailDelivered
+        ? 'A password reset link has been dispatched to your email.'
+        : 'Password reset link generated. If email delivery is throttled by your email provider, use the direct recovery link below.',
+      resetUrl,
+      emailDelivered
     });
   } catch (error) {
     logger.error(`Forgot password error: ${error.message}`);

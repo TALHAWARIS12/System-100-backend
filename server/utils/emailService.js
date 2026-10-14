@@ -113,6 +113,12 @@ const sendEmail = async (options) => {
  * Send signal notification email
  */
 const sendSignalNotification = async (user, signal) => {
+  // Only send blast emails if explicitly enabled via ENABLE_SIGNAL_EMAILS=true
+  // This prevents automated scans from exhausting personal SMTP / Gmail daily sending limits (550-5.4.5)
+  if (process.env.ENABLE_SIGNAL_EMAILS !== 'true') {
+    return { skipped: true };
+  }
+
   const html = `
     <!DOCTYPE html>
     <html>
