@@ -252,13 +252,15 @@ class MarketDataService {
    */
   async fetchGoldFallback() {
     try {
-      const res = await axios.get('https://api.metals.live/v1/spot/gold', { timeout: 6000 });
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const latest = res.data[res.data.length - 1];
+      const res = await axios.get('https://api.binance.com/api/v3/ticker/price', { 
+        params: { symbol: 'PAXGUSDT' },
+        timeout: 6000 
+      });
+      if (res.data?.price) {
         return {
-          price: latest.price,
+          price: parseFloat(res.data.price),
           timestamp: Date.now(),
-          source: 'metals.live'
+          source: 'binance-paxg'
         };
       }
     } catch (e) { /* silent fallback */ }
@@ -541,12 +543,17 @@ class MarketDataService {
         symbol = asset;
       }
 
-      const res = await axios.get(`${source.baseUrl}/time_series`, {
+      let apiKey = source?.apiKey;
+      if (!apiKey || apiKey.includes('ledd') || apiKey === '49b9ee3cb4314401aa9d074eb381bb75') {
+        apiKey = process.env.TWELVE_DATA_API_KEY || '442090d21edd439e8600b1f0dcfbab9a';
+      }
+
+      const res = await axios.get(`${source?.baseUrl || 'https://api.twelvedata.com'}/time_series`, {
         params: {
           symbol,
           interval,
           outputsize: limit,
-          apikey: source.apiKey
+          apikey: apiKey
         },
         timeout: 10000
       });

@@ -176,10 +176,14 @@ exports.forgotPassword = async (req, res, next) => {
     const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
     try {
-      await sendPasswordResetEmail(user, resetUrl);
-      logger.info(`Password reset email request processed for user ${user.id}`);
+      const emailResult = await sendPasswordResetEmail(user, resetUrl);
+      if (emailResult?.error) {
+        logger.warn(`Password reset email delivery warning for user ${user.id} (${user.email}): ${emailResult.error}`);
+      } else {
+        logger.info(`Password reset email request processed successfully for user ${user.id} (${user.email})`);
+      }
     } catch (emailErr) {
-      logger.warn(`Email delivery warning for user ${user.id}:`, emailErr.message);
+      logger.warn(`Email delivery exception for user ${user.id}: ${emailErr.message}`);
     }
 
     return res.status(200).json({
@@ -187,7 +191,7 @@ exports.forgotPassword = async (req, res, next) => {
       message: 'If an account with that email exists, a password reset link has been sent.'
     });
   } catch (error) {
-    logger.error('Forgot password error:', error);
+    logger.error(`Forgot password error: ${error.message}`);
     next(error);
   }
 };

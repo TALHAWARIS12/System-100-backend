@@ -34,6 +34,7 @@ class BackgroundScannerJob {
       try {
         logger.info('🚀 BackgroundScannerJob: Running initial startup scan pass...');
         await cryptoMarketService.fetchAllCryptoPrices();
+        await goldScannerService.scan();
         await multiAssetService.scanAllAssets();
       } catch (err) {
         logger.warn('Startup scan pass warning:', err.message);

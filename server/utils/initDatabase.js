@@ -179,7 +179,10 @@ async function initializeSystemDataSources() {
   try {
     logger.info('🔐 Initializing system data sources...');
 
-    const apiKey = process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '442090d21edd439e8600b1f0dcfbab9a';
+    let apiKey = process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '442090d21edd439e8600b1f0dcfbab9a';
+    if (!apiKey || apiKey === 'your_twelve_data_api_key' || apiKey.includes('ledd') || apiKey === '49b9ee3cb4314401aa9d074eb381bb75') {
+      apiKey = '442090d21edd439e8600b1f0dcfbab9a';
+    }
     const { Op } = require('sequelize');
 
     // Remove any corrupted or duplicate data sources
@@ -187,7 +190,8 @@ async function initializeSystemDataSources() {
       where: {
         [Op.or]: [
           { name: ['NEW', 'Tweleee', 'TwelveData Free'] },
-          { apiKey: { [Op.like]: '%ledd%' } }
+          { apiKey: { [Op.like]: '%ledd%' } },
+          { apiKey: '49b9ee3cb4314401aa9d074eb381bb75' }
         ]
       }
     }).catch(() => {});

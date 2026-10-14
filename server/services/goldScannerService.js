@@ -23,7 +23,7 @@ class GoldScannerService {
     this.isRunning = false;
 
     // Initialize rate limiters for free APIs
-    rateLimiter.registerProvider('metals.live', 1000, 24 * 60 * 60 * 1000, 2); // 1000/day estimate
+    rateLimiter.registerProvider('paxg-gold', 1200, 60 * 1000, 3);
   }
 
   /**
@@ -75,11 +75,15 @@ class GoldScannerService {
     switch (provider) {
       case 'twelvedata': {
         try {
+          let key = apiKey;
+          if (!key || key.includes('ledd') || key === '49b9ee3cb4314401aa9d074eb381bb75') {
+            key = process.env.TWELVE_DATA_API_KEY || '442090d21edd439e8600b1f0dcfbab9a';
+          }
           const res = await axios.get(`${baseUrl}/time_series`, {
-            params: { symbol: 'XAU/USD', interval: '5min', outputsize: 100, apikey: apiKey },
+            params: { symbol: 'XAU/USD', interval: '5min', outputsize: 100, apikey: key },
             timeout: 10000
           });
-          if (res.data?.values) {
+          if (res.data?.values && Array.isArray(res.data.values) && res.data.values.length > 0) {
             return res.data.values.map(v => ({
               time: new Date(v.datetime).getTime(),
               open: parseFloat(v.open),
@@ -88,6 +92,9 @@ class GoldScannerService {
               close: parseFloat(v.close),
               volume: parseFloat(v.volume || 0)
             })).reverse();
+          }
+          if (res.data?.code) {
+            logger.warn(`TwelveData notice (${res.data.code}): ${res.data.message}`);
           }
           return null;
         } catch (error) {
@@ -171,49 +178,56 @@ class GoldScannerService {
 
   async fetchFromFallback() {
     try {
-      logger.info('📍 Using FREE API fallback for gold price (metals.live)');
+      logger.info('📍 Using FREE API fallback for gold candles (Binance PAXG / DB)');
       
-      // Use rate limiter to prevent exhausting free tier
-      const data = await rateLimiter.queueRequest(
-        'metals.live',
-        async () => {
-          const res = await axios.get('https://api.metals.live/v1/spot/gold', { 
-            timeout: 8000,
-            headers: { 'User-Agent': 'GoldScannerBot/1.0' }
-          });
-          
-          if (res.data && Array.isArray(res.data)) {
-            const price = res.data[res.data.length - 1];
-            // Return a single-point data set for current price
-            return [{
-              time: Date.now(),
-              open: price.price,
-              high: price.price,
-              low: price.price,
-              close: price.price,
-              volume: 0
-            }];
-          }
-          return null;
+      // 1. Try Binance PAXG/USDT (tracks gold spot price 1:1, 100 historical 5m candles, free & unauthenticated)
+      try {
+        const res = await axios.get('https://api.binance.com/api/v3/klines', { 
+          params: { symbol: 'PAXGUSDT', interval: '5m', limit: 100 },
+          timeout: 8000
+        });
+        
+        if (Array.isArray(res.data) && res.data.length >= 30) {
+          const candles = res.data.map(k => ({
+            time: k[0],
+            open: parseFloat(k[1]),
+            high: parseFloat(k[2]),
+            low: parseFloat(k[3]),
+            close: parseFloat(k[4]),
+            volume: parseFloat(k[5] || 0)
+          }));
+          await cache.set('gold-price:latest', { data: candles, timestamp: Date.now() }, 300);
+          logger.info(`✅ Fetched ${candles.length} gold candles via PAXGUSDT fallback`);
+          return candles;
         }
-      );
+      } catch (binanceErr) {
+        logger.warn(`Binance PAXG fallback warning: ${binanceErr.message}`);
+      }
 
-      if (data) {
-        // Cache for 5 minutes
-        await cache.set('gold-price:latest', { data, timestamp: Date.now() }, 300);
+      // 2. Fallback to cached candles in Candle model
+      const dbCandles = await Candle.findAll({
+        where: { asset: this.pair },
+        order: [['openTime', 'DESC']],
+        limit: 100,
+        raw: true
+      });
+
+      if (dbCandles && dbCandles.length >= 30) {
+        logger.info(`Using ${dbCandles.length} database candles for gold scanning`);
+        const candles = dbCandles.reverse().map(c => ({
+          time: new Date(c.openTime).getTime(),
+          open: parseFloat(c.open),
+          high: parseFloat(c.high),
+          low: parseFloat(c.low),
+          close: parseFloat(c.close),
+          volume: parseFloat(c.volume || 0)
+        }));
+        return candles;
       }
-      return data;
+
+      return null;
     } catch (error) {
-      // If rate limited, check cache for fallback
-      if (error.message?.includes('rate limit')) {
-        logger.warn('metals.live rate limited, checking cache for fallback data');
-        const cached = await cache.get('gold-price:latest');
-        if (cached?.data) {
-          logger.info('Using stale cached gold price from %d minutes ago', Math.round((Date.now() - cached.timestamp) / 60000));
-          return cached.data;
-        }
-      }
-      logger.error('Free API fallback failed:', error.message);
+      logger.error(`Free API fallback failed: ${error.message}`);
       return null;
     }
   }
@@ -264,11 +278,20 @@ class GoldScannerService {
       reasons.push('Price above MA50 (bullish trend)');
     }
 
-    // RSI oversold bounce
-    if (lastRSI < 30) {
+    // Price above MA20 (momentum)
+    if (currentPrice > lastMA20) {
+      buyScore += 15;
+      reasons.push('Price above MA20 (bullish momentum)');
+    }
+
+    // RSI oversold bounce or bullish momentum
+    if (lastRSI < 35) {
       buyScore += 25;
-      reasons.push('RSI oversold (<30)');
-    } else if (lastRSI < 40) {
+      reasons.push('RSI oversold bounce (<35)');
+    } else if (lastRSI >= 50 && lastRSI <= 65) {
+      buyScore += 15;
+      reasons.push('RSI healthy bullish momentum (50-65)');
+    } else if (lastRSI < 45) {
       buyScore += 10;
       reasons.push('RSI approaching oversold');
     }
@@ -279,10 +302,13 @@ class GoldScannerService {
       reasons.push('Price near lower Bollinger Band');
     }
 
-    // Price above MA20 (momentum)
-    if (currentPrice > lastMA20) {
-      buyScore += 10;
-      reasons.push('Price above MA20');
+    // MACD bullish confirmation
+    if (indicators.macd?.histogram && indicators.macd.histogram.length > 0) {
+      const hist = indicators.macd.histogram[indicators.macd.histogram.length - 1];
+      if (hist > 0) {
+        buyScore += 10;
+        reasons.push('MACD positive histogram');
+      }
     }
 
     // ─── SELL Signal Detection ───
@@ -298,11 +324,20 @@ class GoldScannerService {
       sellReasons.push('Price below MA50 (bearish trend)');
     }
 
-    // RSI overbought
-    if (lastRSI > 70) {
+    // Price below MA20 (momentum)
+    if (currentPrice < lastMA20) {
+      sellScore += 15;
+      sellReasons.push('Price below MA20 (bearish momentum)');
+    }
+
+    // RSI overbought or bearish momentum
+    if (lastRSI > 65) {
       sellScore += 25;
-      sellReasons.push('RSI overbought (>70)');
-    } else if (lastRSI > 60) {
+      sellReasons.push('RSI overbought rejection (>65)');
+    } else if (lastRSI >= 35 && lastRSI <= 50) {
+      sellScore += 15;
+      sellReasons.push('RSI bearish momentum (35-50)');
+    } else if (lastRSI > 55) {
       sellScore += 10;
       sellReasons.push('RSI approaching overbought');
     }
@@ -313,29 +348,44 @@ class GoldScannerService {
       sellReasons.push('Price near upper Bollinger Band');
     }
 
-    // Price below MA20
-    if (currentPrice < lastMA20) {
-      sellScore += 10;
-      sellReasons.push('Price below MA20');
+    // MACD bearish confirmation
+    if (indicators.macd?.histogram && indicators.macd.histogram.length > 0) {
+      const hist = indicators.macd.histogram[indicators.macd.histogram.length - 1];
+      if (hist < 0) {
+        sellScore += 10;
+        sellReasons.push('MACD negative histogram');
+      }
     }
 
-    // Determine signal
-    if (buyScore >= 40 && buyScore > sellScore) {
+    // Determine signal (threshold score >= 30)
+    if (buyScore >= 30 && buyScore > sellScore) {
       signalType = 'buy';
-      confidence = Math.min(buyScore, 98);
-    } else if (sellScore >= 40 && sellScore > buyScore) {
+      confidence = Math.min(Math.max(buyScore + 40, 75), 98);
+    } else if (sellScore >= 30 && sellScore > buyScore) {
       signalType = 'sell';
-      confidence = Math.min(sellScore, 98);
+      confidence = Math.min(Math.max(sellScore + 40, 75), 98);
       reasons = sellReasons;
     }
 
     if (!signalType) return null;
 
+    // Pattern classification
+    let pattern = 'Gold Circle Capital Strategy';
+    if (reasons.some(r => r.includes('crossed'))) {
+      pattern = 'MA Crossover Confluence';
+    } else if (reasons.some(r => r.includes('oversold') || r.includes('overbought'))) {
+      pattern = 'RSI Dynamic Reversal';
+    } else if (reasons.some(r => r.includes('momentum'))) {
+      pattern = 'Trend Continuation Setup';
+    } else if (reasons.some(r => r.includes('Bollinger'))) {
+      pattern = 'Bollinger Volatility Breakout';
+    }
+
     // Calculate SL/TP using ATR
-    const slDistance = currentATR * 2;
-    const tpDistance = currentATR * 3;
-    const tp2Distance = currentATR * 5;  // 5x ATR for TP2
-    const tp3Distance = currentATR * 7;  // 7x ATR for TP3
+    const slDistance = Math.max(currentATR * 2, currentPrice * 0.003);
+    const tpDistance = Math.max(currentATR * 3, currentPrice * 0.005);
+    const tp2Distance = Math.max(currentATR * 5, currentPrice * 0.008);
+    const tp3Distance = Math.max(currentATR * 7, currentPrice * 0.012);
 
     return {
       pair: this.pair,
@@ -353,7 +403,7 @@ class GoldScannerService {
       takeProfit3: signalType === 'buy'
         ? parseFloat((currentPrice + tp3Distance).toFixed(2))
         : parseFloat((currentPrice - tp3Distance).toFixed(2)),
-      pattern: 'Gold Circle Capital Strategy',
+      pattern,
       confidence,
       reasons,
       indicators: {
@@ -450,7 +500,7 @@ class GoldScannerService {
           strategyName: 'GOLD_CIRCLE_CAPITAL',
           indicators: signal.indicators,
           isActive: true,
-          expiresAt: new Date(Date.now() + 4 * 3600000)
+          expiresAt: new Date(Date.now() + 24 * 3600000)
         });
 
         // Also persist to dedicated Signal model (single record)
@@ -470,7 +520,7 @@ class GoldScannerService {
           status: 'active',
           source: 'gold-scanner',
           publishedAt: new Date(),
-          expiresAt: new Date(Date.now() + 4 * 3600000)
+          expiresAt: new Date(Date.now() + 24 * 3600000)
         });
 
         // Broadcast via WebSocket - single signal

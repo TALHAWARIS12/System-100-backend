@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const apiKey = '442090d2ledd439e8600blf0dcfbab9a';
+const apiKey = '442090d21edd439e8600b1f0dcfbab9a';
 const baseUrl = 'https://api.twelvedata.com';
 const symbol = 'XAU/USD';
 const interval = '1h';

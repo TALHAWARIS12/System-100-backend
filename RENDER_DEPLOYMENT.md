@@ -83,8 +83,23 @@ STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
 STRIPE_PRICE_ID=price_your_price_id
 
-# Twelve Data
-TWELVE_DATA_API_KEY=49b9ee3cb4314401aa9d074eb381bb75
+# Twelve Data (Grow Plan Key)
+TWELVE_DATA_API_KEY=442090d21edd439e8600b1f0dcfbab9a
+
+# Email Configuration (for password reset and notifications)
+# Option A: Gmail SMTP (Requires 16-character Google App Password, not regular password)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_16_character_google_app_password
+SMTP_FROM=Gold Circle Capital <your_email@gmail.com>
+
+# Option B: Resend SMTP
+# SMTP_HOST=smtp.resend.com
+# SMTP_PORT=587
+# SMTP_USER=resend
+# SMTP_PASS=your_resend_api_key
+# SMTP_FROM=Gold Circle Capital <onboarding@resend.dev>
 
 # Admin
 MASTER_ADMIN_EMAIL=admin@tradingplatform.com

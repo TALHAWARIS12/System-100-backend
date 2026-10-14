@@ -2,60 +2,94 @@ const nodemailer = require('nodemailer');
 const logger = require('./logger');
 
 // Check if email is configured
-const isEmailConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const isEmailConfigured = () => {
+  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+};
 
 // Email transporter configuration
 let transporter = null;
 
-if (isEmailConfigured) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT || 587,
-    secure: false, // true for 465, false for other ports
+const getTransporter = () => {
+  if (transporter) return transporter;
+
+  if (!isEmailConfigured()) {
+    return null;
+  }
+
+  const host = (process.env.SMTP_HOST || '').toLowerCase();
+  const port = parseInt(process.env.SMTP_PORT, 10) || 587;
+  const isGmail = host.includes('gmail') || process.env.SMTP_SERVICE === 'gmail';
+  const isSecure = port === 465 || process.env.SMTP_SECURE === 'true';
+
+  const config = {
+    host: isGmail ? 'smtp.gmail.com' : host,
+    port: isGmail && isSecure ? 465 : port,
+    secure: isSecure,
     auth: {
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      pass: (process.env.SMTP_PASS || '').trim()
+    },
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 100,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+    tls: {
+      rejectUnauthorized: false
     }
-  });
+  };
 
-  // Verify transporter configuration
-  transporter.verify((error, success) => {
+  if (isGmail) {
+    config.service = 'gmail';
+  }
+
+  transporter = nodemailer.createTransport(config);
+
+  // Non-blocking verification check
+  transporter.verify((error) => {
     if (error) {
-      logger.warn('Email configuration invalid (emails disabled):', error.message);
-      transporter = null;
+      logger.warn(`Email configuration verification warning: ${error.message} (will retry on demand)`);
     } else {
       logger.info('Email server ready to send messages');
     }
   });
+
+  return transporter;
+};
+
+// Initial verification if configured at boot
+if (isEmailConfigured()) {
+  getTransporter();
 } else {
-  logger.info('Email not configured - email notifications disabled (this is optional)');
+  logger.info('Email not configured - email notifications disabled (optional)');
 }
 
 /**
  * Send email
  */
 const sendEmail = async (options) => {
+  const activeTransporter = getTransporter();
+
   // Skip if email not configured
-  if (!isEmailConfigured || !transporter) {
-    logger.info('Email skipped (not configured):', options.subject);
+  if (!activeTransporter) {
+    logger.info(`Email skipped (not configured): ${options.subject}`);
     return { skipped: true };
   }
 
   try {
-    let toAddress = options.to;
-    // On Resend sandbox tier (onboarding@resend.dev), only account owner is allowed
-    if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('resend') && toAddress !== 'ahmad123445888@gmail.com') {
-      logger.debug(`Skipping test email to unverified ${toAddress} on Resend sandbox domain`);
-      return { skipped: true };
-    }
+    const isGmail = (process.env.SMTP_HOST || '').toLowerCase().includes('gmail');
+    const isResend = (process.env.SMTP_HOST || '').toLowerCase().includes('resend');
 
     let fromAddress = options.from || process.env.SMTP_FROM;
-    if (!fromAddress || fromAddress.includes('yourdomain.com')) {
-      if (process.env.SMTP_HOST && process.env.SMTP_HOST.includes('resend')) {
-        fromAddress = 'Gold Circle Capital <onboarding@resend.dev>';
-      } else {
-        fromAddress = 'Gold Circle Capital <noreply@goldcirclecapital.com>';
-      }
+    if (isGmail && process.env.SMTP_USER) {
+      fromAddress = `Gold Circle Capital <${process.env.SMTP_USER}>`;
+    } else if (isResend) {
+      fromAddress = process.env.SMTP_FROM || 'Gold Circle Capital <onboarding@resend.dev>';
+    } else if (!fromAddress || fromAddress.includes('yourdomain.com')) {
+      fromAddress = process.env.SMTP_USER 
+        ? `Gold Circle Capital <${process.env.SMTP_USER}>`
+        : 'Gold Circle Capital <noreply@goldcirclecapital.com>';
     }
 
     const mailOptions = {
@@ -66,11 +100,11 @@ const sendEmail = async (options) => {
       text: options.text
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    logger.info('Email sent successfully:', info.messageId);
-    return info;
+    const info = await activeTransporter.sendMail(mailOptions);
+    logger.info(`Email sent successfully to ${options.to}: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    logger.error('Send email error:', error.message);
+    logger.error(`Send email error: ${error.message}`);
     return { error: error.message };
   }
 };
@@ -253,7 +287,9 @@ const sendPasswordResetEmail = async (user, resetUrl) => {
     </html>
   `;
 
-  await sendEmail({
+  logger.info(`🔑 Password reset link for ${user.email}: ${resetUrl}`);
+
+  return await sendEmail({
     to: user.email,
     subject: '🔐 Gold Circle Capital — Password Reset Request',
     html,

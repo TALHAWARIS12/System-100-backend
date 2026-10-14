@@ -35,26 +35,40 @@ exports.triggerScan = async (req, res, next) => {
 // @route   GET /api/gold-scanner/signals
 exports.getSignals = async (req, res, next) => {
   try {
-    const { limit = 20, active } = req.query;
+    const { limit = 20, active, pair } = req.query;
+    const targetPair = pair || 'XAUUSD';
     
-    const where = { pair: 'XAUUSD' };
+    // Soft-mark expired signals instead of permanently deleting them
+    await ScannerResult.update(
+      { isActive: false },
+      {
+        where: {
+          expiresAt: { [Op.lt]: new Date() },
+          isActive: true
+        }
+      }
+    ).catch(() => {});
+
+    let where = { pair: targetPair };
     if (active === 'true') {
       where.isActive = true;
       where.expiresAt = { [Op.gt]: new Date() };
     }
 
-    // Clean up expired signals first
-    await ScannerResult.destroy({
-      where: {
-        expiresAt: { [Op.lt]: new Date() }
-      }
-    });
-
-    const signals = await ScannerResult.findAll({
+    let signals = await ScannerResult.findAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit)
+      limit: parseInt(limit, 10)
     });
+
+    // If active query yielded no signals, fallback to the latest signals for the pair
+    if ((!signals || signals.length === 0) && active === 'true') {
+      signals = await ScannerResult.findAll({
+        where: { pair: targetPair },
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit, 10)
+      });
+    }
 
     // Smart deduplication: prevent exact duplicates within 30 minutes
     const deduped = new Map();
@@ -62,12 +76,10 @@ exports.getSignals = async (req, res, next) => {
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
     
     for (const signal of signalsArray) {
-      // Key: signalType + entry price (rounded to 2 decimals)
       const entryRounded = Math.round(parseFloat(signal.entry) * 100) / 100;
       const key = `${signal.signalType}-${entryRounded}`;
       
       if (!deduped.has(key)) {
-        // Only skip if we have an identical signal from the last 30 minutes
         const identicalRecent = signalsArray.filter(s => {
           const sEntryRounded = Math.round(parseFloat(s.entry) * 100) / 100;
           const sKey = `${s.signalType}-${sEntryRounded}`;
@@ -80,11 +92,11 @@ exports.getSignals = async (req, res, next) => {
       }
     }
 
-    const uniqueSignals = Array.from(deduped.values()).slice(0, parseInt(limit));
+    const uniqueSignals = Array.from(deduped.values()).slice(0, parseInt(limit, 10));
 
     res.json({ success: true, signals: uniqueSignals });
   } catch (error) {
-    logger.error('Get gold signals error:', error);
+    logger.error(`Get gold signals error: ${error.message}`);
     next(error);
   }
 };
