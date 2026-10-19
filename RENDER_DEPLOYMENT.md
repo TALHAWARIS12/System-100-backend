@@ -72,7 +72,7 @@ In Render dashboard → **Environment** tab:
 
 ```bash
 # Database
-DATABASE_URL=postgresql://neondb_owner:npg_WTsa1ptUM3nh@ep-falling-salad-ahx8odim-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL=postgresql://neondb_owner:npg_JhSoxnwz1pc3@ep-divine-shape-b4kli7em-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require
 
 # JWT - GENERATE NEW ONE
 JWT_SECRET=<run: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))">

@@ -8,7 +8,7 @@ const getSequelizeInstance = () => {
       const dbUrl = new URL(process.env.DATABASE_URL);
       const database = dbUrl.pathname.replace(/^\//, '') || 'neondb';
       const username = String(decodeURIComponent(dbUrl.username || 'neondb_owner'));
-      const password = String(decodeURIComponent(dbUrl.password || 'npg_WTsa1ptUM3nh'));
+      const password = String(decodeURIComponent(dbUrl.password || 'npg_JhSoxnwz1pc3'));
 
       return new Sequelize(database, username, password, {
         host: dbUrl.hostname,
@@ -37,9 +37,9 @@ const getSequelizeInstance = () => {
   return new Sequelize(
     'neondb',
     'neondb_owner',
-    'npg_WTsa1ptUM3nh',
+    'npg_JhSoxnwz1pc3',
     {
-      host: 'ep-falling-salad-ahx8odim-pooler.c-3.us-east-1.aws.neon.tech',
+      host: 'ep-divine-shape-b4kli7em-pooler.c-6.us-east-2.aws.neon.tech',
       port: 5432,
       dialect: 'postgres',
       dialectModule: pg,
