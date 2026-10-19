@@ -25,7 +25,7 @@ class MarketDataService {
     this.assets = [
       'XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'GBPJPY', 'AUDUSD', 
       'USDCAD', 'NZDUSD', 'USDCHF', 'EURGBP', 'EURJPY', 
-      'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'US30'
+      'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'US30', 'NAS100'
     ];
     this.isRunning = false;
     // Redis client (optional, set via setRedis)
@@ -152,13 +152,145 @@ class MarketDataService {
       return await this.fetchGoldFallback();
     }
 
+    // Fallback for indices (NAS100, US30, SPX)
+    if (this.isIndexAsset(asset)) {
+      const idx = await this.fetchIndexFallback(asset);
+      if (idx) return idx;
+    }
+
     return null;
+  }
+
+  /**
+   * Check if asset is a stock index
+   */
+  isIndexAsset(asset) {
+    const sym = (asset || '').toUpperCase().replace('/', '');
+    return ['NAS100', 'US30', 'US30USD', 'DJI', 'NDX', 'SPX', 'SPX500', 'IXIC'].includes(sym);
+  }
+
+  /**
+   * Fallback for indices (NAS100, US30, SPX) via Yahoo Finance
+   */
+  async fetchIndexFallback(asset) {
+    const symbolMap = {
+      'NAS100': '^NDX',
+      'NDX': '^NDX',
+      'IXIC': '^IXIC',
+      'US30': '^DJI',
+      'US30USD': '^DJI',
+      'DJI': '^DJI',
+      'SPX': '^GSPC',
+      'SPX500': '^GSPC'
+    };
+    const clean = (asset || '').toUpperCase().replace('/', '');
+    const sym = symbolMap[clean] || '^NDX';
+
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=15m&range=1d`;
+      const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
+      const meta = res.data?.chart?.result?.[0]?.meta;
+      if (meta?.regularMarketPrice) {
+        return {
+          price: parseFloat(meta.regularMarketPrice.toFixed(2)),
+          timestamp: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
+          source: 'yahoo-finance'
+        };
+      }
+    } catch (e) {
+      logger.warn(`MarketDataService: fetchIndexFallback error for ${asset}: ${e.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Fetch historical candles for indices via Yahoo Finance
+   */
+  async fetchIndexCandles(asset, timeframe, limit = 60) {
+    const symbolMap = {
+      'NAS100': '^NDX',
+      'NDX': '^NDX',
+      'IXIC': '^IXIC',
+      'US30': '^DJI',
+      'US30USD': '^DJI',
+      'DJI': '^DJI',
+      'SPX': '^GSPC',
+      'SPX500': '^GSPC'
+    };
+    const clean = (asset || '').toUpperCase().replace('/', '');
+    const sym = symbolMap[clean];
+    if (!sym) return null;
+
+    try {
+      let interval = '60m';
+      let range = '1mo';
+      if (['15m', '15min'].includes(timeframe)) {
+        interval = '15m';
+        range = '5d';
+      } else if (['4h', '240min'].includes(timeframe)) {
+        interval = '60m';
+        range = '3mo';
+      } else if (['1d', '1day', 'daily'].includes(timeframe)) {
+        interval = '1d';
+        range = '3mo';
+      }
+
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`;
+      const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
+      const r = res.data?.chart?.result?.[0];
+      if (!r || !r.timestamp || !r.indicators?.quote?.[0]) return null;
+
+      const q = r.indicators.quote[0];
+      const raw = [];
+      for (let i = 0; i < r.timestamp.length; i++) {
+        if (q.close[i] != null && q.open[i] != null) {
+          raw.push({
+            time: r.timestamp[i] * 1000,
+            open: parseFloat(q.open[i].toFixed(2)),
+            high: parseFloat(q.high[i].toFixed(2)),
+            low: parseFloat(q.low[i].toFixed(2)),
+            close: parseFloat(q.close[i].toFixed(2)),
+            volume: parseFloat(q.volume[i] || 0)
+          });
+        }
+      }
+
+      if (raw.length < 10) return null;
+
+      // Aggregate 1h to 4h if timeframe is 4h
+      if (['4h', '240min'].includes(timeframe)) {
+        const h4 = [];
+        for (let i = 0; i < raw.length; i += 4) {
+          const chunk = raw.slice(i, i + 4);
+          h4.push({
+            time: chunk[0].time,
+            open: chunk[0].open,
+            high: Math.max(...chunk.map(c => c.high)),
+            low: Math.min(...chunk.map(c => c.low)),
+            close: chunk[chunk.length - 1].close,
+            volume: chunk.reduce((s, c) => s + c.volume, 0)
+          });
+        }
+        return h4.slice(-limit);
+      }
+
+      return raw.slice(-limit);
+    } catch (e) {
+      logger.warn(`MarketDataService: fetchIndexCandles error for ${asset}: ${e.message}`);
+      return null;
+    }
   }
 
   /**
    * Route to correct provider
    */
   async fetchFromProvider(source, asset) {
+    // If index asset, directly use reliable index quotes
+    if (this.isIndexAsset(asset)) {
+      const idx = await this.fetchIndexFallback(asset);
+      if (idx) return idx;
+    }
+
     const { provider, baseUrl, apiKey } = source;
     const fromSymbol = asset.substring(0, 3);
     const toSymbol = asset.substring(3);
@@ -457,7 +589,9 @@ class MarketDataService {
    */
   async getCandles(asset, timeframe, limit = 100) {
     try {
-      // 1. Check existing candles in DB
+      const isIdx = this.isIndexAsset(asset);
+
+      // 1. Check existing candles in DB (ensure price is reasonable if index)
       let dbCandles = await Candle.findAll({
         where: { asset, timeframe },
         order: [['openTime', 'DESC']],
@@ -465,38 +599,61 @@ class MarketDataService {
         raw: true
       });
 
-      if (dbCandles && dbCandles.length >= 30) {
-        // Return chronological order (oldest to newest)
-        return dbCandles.reverse().map(c => ({
-          time: new Date(c.openTime).getTime(),
-          open: parseFloat(c.open),
-          high: parseFloat(c.high),
-          low: parseFloat(c.low),
-          close: parseFloat(c.close),
-          volume: parseFloat(c.volume || 0)
-        }));
+      if (dbCandles && dbCandles.length >= 50) {
+        const sampleClose = parseFloat(dbCandles[0].close);
+        if (!isIdx || sampleClose > 1000) {
+          // Return chronological order (oldest to newest)
+          return dbCandles.reverse().map(c => ({
+            time: new Date(c.openTime).getTime(),
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            volume: parseFloat(c.volume || 0)
+          }));
+        }
       }
 
-      // 2. Fetch fresh candles from TwelveData
+      // 2. If index asset (NAS100, US30, SPX), fetch via Yahoo Finance index candles
+      if (isIdx) {
+        const indexCandles = await this.fetchIndexCandles(asset, timeframe, Math.max(limit, 60));
+        if (indexCandles && indexCandles.length >= 15) {
+          await this.storeCandleBatch(asset, timeframe, indexCandles, 'yahoo-finance').catch(() => {});
+          return indexCandles;
+        }
+      }
+
+      // 3. Fetch fresh candles from TwelveData
       const fetched = await this.fetchCandlesFromDataSource(asset, timeframe, Math.max(limit, 60));
       if (fetched && fetched.length >= 30) {
         await this.storeCandleBatch(asset, timeframe, fetched, 'twelvedata').catch(() => {});
         return fetched;
       }
 
-      // 3. Fallback: if we have some candles, use them
-      if (dbCandles && dbCandles.length > 0) {
-        return dbCandles.reverse().map(c => ({
-          time: new Date(c.openTime).getTime(),
-          open: parseFloat(c.open),
-          high: parseFloat(c.high),
-          low: parseFloat(c.low),
-          close: parseFloat(c.close),
-          volume: parseFloat(c.volume || 0)
-        }));
+      // 4. Fallback for indices if not tried yet
+      if (isIdx) {
+        const indexCandles = await this.fetchIndexCandles(asset, timeframe, Math.max(limit, 60));
+        if (indexCandles && indexCandles.length >= 10) {
+          return indexCandles;
+        }
       }
 
-      // 4. Generate baseline candles from latest price as resilient fallback
+      // 5. Fallback: if we have some valid candles, use them
+      if (dbCandles && dbCandles.length > 0) {
+        const sampleClose = parseFloat(dbCandles[0].close);
+        if (!isIdx || sampleClose > 1000) {
+          return dbCandles.reverse().map(c => ({
+            time: new Date(c.openTime).getTime(),
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            volume: parseFloat(c.volume || 0)
+          }));
+        }
+      }
+
+      // 6. Generate baseline candles from latest price as resilient fallback
       return await this.generateBaselineCandles(asset, timeframe, limit);
     } catch (err) {
       logger.warn(`marketDataService.getCandles error for ${asset} ${timeframe}: ${err.message}`);
@@ -532,6 +689,7 @@ class MarketDataService {
       let symbol;
       const clean = asset.replace('/', '').toUpperCase();
       if (clean.startsWith('US30')) symbol = 'DJI';
+      else if (clean === 'NAS100' || clean === 'NDX') symbol = 'QQQ';
       else if (clean.startsWith('XAU')) symbol = 'XAU/USD';
       else if (clean.startsWith('XAG')) symbol = 'XAG/USD';
       else if (['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].some(c => clean.startsWith(c))) {
@@ -580,8 +738,25 @@ class MarketDataService {
    */
   async generateBaselineCandles(asset, timeframe, count = 60) {
     try {
+      const isIdx = this.isIndexAsset(asset);
+      const isNas = asset.includes('NAS100') || asset.includes('NDX');
+      const isDow = asset.includes('US30') || asset.includes('DJI');
+      const isSpx = asset.includes('SPX');
       const latest = await this.getLatestPrice(asset);
-      const basePrice = latest?.price || (asset.includes('BTC') ? 85000 : asset.includes('ETH') ? 2400 : asset.includes('XAU') ? 4115 : 1.10);
+      const validLatestPrice = (latest?.price && (!isIdx || latest.price > 1000)) ? latest.price : null;
+
+      const basePrice = validLatestPrice || (
+        asset.includes('BTC') ? 85000 : 
+        asset.includes('ETH') ? 2400 : 
+        asset.includes('SOL') ? 180 :
+        asset.includes('XAU') ? 4115 : 
+        asset.includes('XAG') ? 31.50 :
+        isNas ? 29600 :
+        isDow ? 52000 :
+        isSpx ? 5800 :
+        1.10
+      );
+      const decimals = (asset.includes('BTC') || isIdx) ? 2 : (asset.includes('JPY') ? 3 : 5);
       const tfMs = this.getTimeframeMs(timeframe);
       const now = Date.now();
       const candles = [];
@@ -598,10 +773,10 @@ class MarketDataService {
         current = close;
         candles.push({
           time,
-          open: parseFloat(open.toFixed(5)),
-          high: parseFloat(high.toFixed(5)),
-          low: parseFloat(low.toFixed(5)),
-          close: parseFloat(close.toFixed(5)),
+          open: parseFloat(open.toFixed(decimals)),
+          high: parseFloat(high.toFixed(decimals)),
+          low: parseFloat(low.toFixed(decimals)),
+          close: parseFloat(close.toFixed(decimals)),
           volume: Math.floor(Math.random() * 5000) + 1000
         });
       }

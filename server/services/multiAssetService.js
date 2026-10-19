@@ -166,6 +166,14 @@ class MultiAssetService {
    */
   evaluateTechnicalSetup(asset, category, timeframe, indicators) {
     const { currentPrice, ma20, ma50, rsi, bollingerBands, atr } = indicators;
+
+    // Safety sanity check: index and crypto assets must have realistic prices (> 1000)
+    const isMajorIndexOrCrypto = ['US30', 'NAS100', 'SPX', 'DJI', 'BTC'].some(i => asset.toUpperCase().includes(i));
+    if (isMajorIndexOrCrypto && currentPrice < 1000) {
+      logger.error(`[MultiAssetService] Sanity check failed for ${asset}: price is ${currentPrice} (< 1000). Rejecting corrupt signal.`);
+      return null;
+    }
+
     const currentRSI = rsi?.current ?? 50;
     const ma20Val = ma20?.current ?? currentPrice;
     const ma50Val = ma50?.current ?? currentPrice;

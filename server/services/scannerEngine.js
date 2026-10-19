@@ -470,8 +470,10 @@ class ScannerEngine {
     // Determine symbol format based on asset type
     let symbol;
     const cleanPair = pair.replace('/', '').toUpperCase();
-    if (cleanPair.startsWith('US30')) {
+    if (cleanPair.startsWith('US30') || cleanPair === 'DJI') {
       symbol = 'DJI';
+    } else if (cleanPair === 'NAS100' || cleanPair === 'NDX') {
+      symbol = 'QQQ';
     } else if (cleanPair.startsWith('XAU')) {
       symbol = 'XAU/USD';
     } else if (cleanPair.startsWith('XAG')) {
