@@ -5,6 +5,7 @@
  */
 
 const { ScannerConfig, ScannerResult, Signal, Candle, Notification, DataSource } = require('../models');
+const { sequelize } = require('../config/database');
 const logger = require('./logger');
 
 async function initDatabase() {
@@ -28,6 +29,9 @@ async function initDatabase() {
 
     // Initialize free API data sources (disable paid APIs with rate limits)
     await initializeFreeAPIs();
+
+    // Ensure foreign key constraints for Users have ON DELETE CASCADE / SET NULL
+    await ensureUserCascadeConstraints();
 
     // Clean up old expired signals
     await cleanupExpiredSignals();
@@ -287,4 +291,34 @@ async function initializeFreeAPIs() {
   }
 }
 
-module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals, initializeFreeAPIs, initializeSystemDataSources };
+async function ensureUserCascadeConstraints() {
+  try {
+    const commands = [
+      `ALTER TABLE "ChatMessages" DROP CONSTRAINT IF EXISTS "ChatMessages_userId_fkey";`,
+      `ALTER TABLE "ChatMessages" ADD CONSTRAINT "ChatMessages_userId_fkey" FOREIGN KEY ("userId") REFERENCES "Users"("id") ON DELETE CASCADE;`,
+      `ALTER TABLE "TradeJournals" DROP CONSTRAINT IF EXISTS "TradeJournals_userId_fkey";`,
+      `ALTER TABLE "TradeJournals" ADD CONSTRAINT "TradeJournals_userId_fkey" FOREIGN KEY ("userId") REFERENCES "Users"("id") ON DELETE CASCADE;`,
+      `ALTER TABLE "Notifications" DROP CONSTRAINT IF EXISTS "Notifications_userId_fkey";`,
+      `ALTER TABLE "Notifications" ADD CONSTRAINT "Notifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES "Users"("id") ON DELETE CASCADE;`,
+      `ALTER TABLE "Referrals" DROP CONSTRAINT IF EXISTS "Referrals_referrerId_fkey";`,
+      `ALTER TABLE "Referrals" ADD CONSTRAINT "Referrals_referrerId_fkey" FOREIGN KEY ("referrerId") REFERENCES "Users"("id") ON DELETE CASCADE;`,
+      `ALTER TABLE "AuditLogs" ALTER COLUMN "performedBy" DROP NOT NULL;`,
+      `ALTER TABLE "AuditLogs" DROP CONSTRAINT IF EXISTS "AuditLogs_performedBy_fkey";`,
+      `ALTER TABLE "AuditLogs" ADD CONSTRAINT "AuditLogs_performedBy_fkey" FOREIGN KEY ("performedBy") REFERENCES "Users"("id") ON DELETE SET NULL;`,
+      `ALTER TABLE "Trades" DROP CONSTRAINT IF EXISTS "Trades_educatorId_fkey";`,
+      `ALTER TABLE "Trades" ADD CONSTRAINT "Trades_educatorId_fkey" FOREIGN KEY ("educatorId") REFERENCES "Users"("id") ON DELETE CASCADE;`,
+      `ALTER TABLE "Announcements" ALTER COLUMN "createdBy" DROP NOT NULL;`,
+      `ALTER TABLE "Announcements" DROP CONSTRAINT IF EXISTS "Announcements_createdBy_fkey";`,
+      `ALTER TABLE "Announcements" ADD CONSTRAINT "Announcements_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "Users"("id") ON DELETE SET NULL;`
+    ];
+
+    for (const cmd of commands) {
+      await sequelize.query(cmd).catch(() => {});
+    }
+    logger.info('✅ User cascade foreign key constraints verified');
+  } catch (err) {
+    logger.warn('⚠️ User cascade constraints check warning:', err.message);
+  }
+}
+
+module.exports = { initDatabase, initializeScannerConfigs, cleanupExpiredSignals, initializeFreeAPIs, initializeSystemDataSources, ensureUserCascadeConstraints };

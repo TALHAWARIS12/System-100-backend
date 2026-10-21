@@ -29,7 +29,7 @@ const Announcement = sequelize.define('Announcement', {
   },
   createdBy: {
     type: DataTypes.UUID,
-    allowNull: false,
+    allowNull: true,
     references: { model: 'Users', key: 'id' }
   },
   expiresAt: {

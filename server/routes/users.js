@@ -7,6 +7,7 @@ const {
   getUser,
   updateUser,
   deleteUser,
+  bulkDeleteUsers,
   createEducator,
   getUserStats
 } = require('../controllers/userController');
@@ -18,6 +19,7 @@ router.use(authorize('admin'));
 
 router.get('/', getUsers);
 router.get('/stats', getUserStats);
+router.post('/bulk-delete', bulkDeleteUsers);
 router.get('/:id', getUser);
 router.put('/:id', updateUser);
 router.delete('/:id', deleteUser);
