@@ -99,9 +99,24 @@ exports.createCheckoutSession = async (req, res, next) => {
     // Create or retrieve Stripe customer
     let customerId = user.stripeCustomerId;
     
+    if (customerId) {
+      try {
+        const existing = await stripe.customers.retrieve(customerId);
+        if (!existing || existing.deleted) {
+          logger.warn(`Stripe customer ${customerId} marked deleted. Will recreate.`);
+          customerId = null;
+        }
+      } catch (err) {
+        logger.warn(`Stripe customer ${customerId} not found (${err.message}). Creating fresh customer.`);
+        customerId = null;
+        await user.update({ stripeCustomerId: null });
+      }
+    }
+
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
         metadata: {
           userId: user.id,
           planId
@@ -216,6 +231,21 @@ exports.createPortalSession = async (req, res, next) => {
       });
     }
 
+    // Verify customer exists before attempting to open billing portal
+    try {
+      const existing = await stripe.customers.retrieve(user.stripeCustomerId);
+      if (!existing || existing.deleted) {
+        throw new Error('Customer does not exist or has been deleted');
+      }
+    } catch (custErr) {
+      logger.warn(`Billing portal requested for invalid Stripe customer ${user.stripeCustomerId}: ${custErr.message}`);
+      await user.update({ stripeCustomerId: null, subscriptionStatus: 'inactive' });
+      return res.status(400).json({
+        success: false,
+        message: 'No active Stripe billing profile found. Please select a plan below to activate your subscription.'
+      });
+    }
+
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
       return_url: `${frontendUrl}/dashboard`
@@ -228,6 +258,24 @@ exports.createPortalSession = async (req, res, next) => {
   } catch (error) {
     logger.error('Create portal session error:', error);
     
+    // Check for missing customer
+    if (
+      error.code === 'resource_missing' ||
+      error.message?.toLowerCase().includes('no such customer')
+    ) {
+      try {
+        const User = require('../models/User');
+        await User.update(
+          { stripeCustomerId: null, subscriptionStatus: 'inactive' },
+          { where: { id: req.user.id } }
+        );
+      } catch (e) { /* ignore */ }
+      return res.status(400).json({
+        success: false,
+        message: 'No active Stripe billing profile found. Please select a plan below to subscribe.'
+      });
+    }
+
     // Check for missing portal configuration in Stripe Dashboard
     if (
       error.code === 'portal_configuration_not_found' ||
@@ -257,13 +305,22 @@ exports.getSubscriptionStatus = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.user.id);
 
+    // Auto-update expired status in database
+    const isExpired = user.subscriptionEndDate && new Date(user.subscriptionEndDate) < new Date();
+    if (isExpired && user.subscriptionStatus === 'active') {
+      await user.update({ subscriptionStatus: 'inactive' });
+      user.subscriptionStatus = 'inactive';
+    }
+
+    const hasAccess = user.hasActiveSubscription();
+
     res.status(200).json({
       success: true,
       subscription: {
         status: user.subscriptionStatus,
         tier: user.subscriptionTier,
         endDate: user.subscriptionEndDate,
-        hasAccess: user.subscriptionStatus === 'active'
+        hasAccess
       }
     });
   } catch (error) {

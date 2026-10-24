@@ -666,9 +666,19 @@ class ScannerEngine {
       throw new Error('Insufficient candle data');
     }
 
-    const closes = candles.map(c => c.close);
-    const highs = candles.map(c => c.high);
-    const lows = candles.map(c => c.low);
+    // CRITICAL FIX: Ensure candles are strictly sorted newest-first (descending timestamp)
+    // so candles[0] is ALWAYS the current / most recent market candle.
+    let sortedCandles = [...candles];
+    const firstTime = new Date(sortedCandles[0].timestamp || sortedCandles[0].time || 0).getTime();
+    const lastTime = new Date(sortedCandles[sortedCandles.length - 1].timestamp || sortedCandles[sortedCandles.length - 1].time || 0).getTime();
+    if (firstTime < lastTime) {
+      // Input was chronological (oldest-first) -> reverse to newest-first
+      sortedCandles.reverse();
+    }
+
+    const closes = sortedCandles.map(c => c.close);
+    const highs = sortedCandles.map(c => c.high);
+    const lows = sortedCandles.map(c => c.low);
 
     // Calculate RSI
     const rsi = this.calculateRSI(closes, 14);
@@ -691,7 +701,7 @@ class ScannerEngine {
       close: closes[0],
       high: highs[0],
       low: lows[0],
-      volume: candles[0].volume || 0,
+      volume: sortedCandles[0].volume || 0,
       rsi: rsi,
       macd: macd,
       ma: {
@@ -701,7 +711,7 @@ class ScannerEngine {
       },
       support: support,
       resistance: resistance,
-      candles: candles.slice(0, 200) // Store candles for further analysis
+      candles: sortedCandles.slice(0, 200) // Store candles for further analysis
     };
   }
 

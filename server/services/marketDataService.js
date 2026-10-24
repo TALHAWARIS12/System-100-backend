@@ -158,6 +158,27 @@ class MarketDataService {
       if (idx) return idx;
     }
 
+    // Fallback for crypto assets (BTC, ETH, SOL, XRP, etc.)
+    const isCrypto = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'BNB', 'LTC'].some(c => asset.toUpperCase().includes(c));
+    if (isCrypto) {
+      try {
+        const cryptoMarketService = require('./cryptoMarketService');
+        const assetObj = cryptoMarketService.assets.find(a => a.symbol === asset) || { symbol: asset, binancePair: `${asset.replace('USD', '')}USDT` };
+        const cryptoData = await cryptoMarketService.fetchSingleCrypto(assetObj);
+        if (cryptoData) {
+          return {
+            price: cryptoData.price,
+            bid: cryptoData.bid || cryptoData.price,
+            ask: cryptoData.ask || cryptoData.price,
+            timestamp: cryptoData.updatedAt || Date.now(),
+            source: cryptoData.source || 'binance'
+          };
+        }
+      } catch (err) {
+        logger.debug(`MarketDataService crypto fallback note for ${asset}: ${err.message}`);
+      }
+    }
+
     return null;
   }
 
